@@ -1,0 +1,16 @@
+node_modules
+dist
+out
+release
+.tsbuild
+coverage
+playwright-report
+test-results
+package-lock.json
+*.docx
+*.png
+# Hand-authored project docs and agent prompts are not reformatted
+.claude
+docs
+CLAUDE.md
+README.md

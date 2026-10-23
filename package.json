@@ -1,0 +1,42 @@
+{
+  "name": "csense",
+  "version": "0.1.0",
+  "private": true,
+  "description": "CSense - desktop cybersecurity awareness training platform",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "desktop"
+  ],
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "predev": "tsc -b shared",
+    "dev": "concurrently -k -n shared,server,desktop \"tsc -b shared --watch --preserveWatchOutput\" \"npm run dev -w @csense/server\" \"npm run dev -w @csense/desktop\"",
+    "build": "npm run build -w @csense/shared && npm run build -w @csense/server && npm run build -w @csense/desktop",
+    "typecheck": "tsc -b",
+    "lint": "eslint . --max-warnings=0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:e2e": "npm run test:e2e -w @csense/desktop",
+    "audit:high": "npm audit --audit-level=high"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^24.19.2",
+    "concurrently": "^10.0.6",
+    "eslint": "^9.39.5",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "globals": "^17.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}

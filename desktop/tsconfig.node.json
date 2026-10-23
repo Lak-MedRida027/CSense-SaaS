@@ -1,0 +1,20 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "types": ["node"],
+    "emitDeclarationOnly": true,
+    "outDir": ".tsbuild/node",
+    "tsBuildInfoFile": ".tsbuild/node.tsbuildinfo"
+  },
+  "include": [
+    "src/main",
+    "src/preload",
+    "e2e",
+    "electron.vite.config.mts",
+    "playwright.config.mts",
+    "vitest.config.mts"
+  ],
+  "references": [{ "path": "../shared" }]
+}
