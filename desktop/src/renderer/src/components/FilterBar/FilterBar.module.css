@@ -1,0 +1,10 @@
+.root {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--cs-space-4);
+}
+
+.root > * {
+  min-width: 180px;
+}

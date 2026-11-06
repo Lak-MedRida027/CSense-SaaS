@@ -1,0 +1,146 @@
+import { LEVELS, RISK_LEVELS } from '@csense/shared';
+import type { Theme } from './index';
+import { STATUS_TONES, THEME_NAMES, type ThemeName } from './semantic';
+
+type VarMap = [name: string, value: string][];
+
+export const CSS_VAR_PREFIX = '--cs-';
+
+/** `subtleBg` -> `subtle-bg`, `Practitioner` -> `practitioner`, `2xl` stays `2xl`. */
+export function kebab(input: string): string {
+  return input
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[\s_]+/g, '-')
+    .toLowerCase();
+}
+
+/** Build a CSS custom property name from path segments: `cssVar('color','text','primary')`. */
+export function cssVarName(...segments: string[]): string {
+  return CSS_VAR_PREFIX + segments.map(kebab).join('-');
+}
+
+/** `var(--cs-...)` reference, for use in inline styles where a token must be chosen in JS. */
+export function cssVar(...segments: string[]): string {
+  return `var(${cssVarName(...segments)})`;
+}
+
+function flatten(prefix: string[], obj: Record<string, string>, out: VarMap): void {
+  for (const [key, value] of Object.entries(obj)) {
+    out.push([cssVarName(...prefix, key), value]);
+  }
+}
+
+function staticVars(t: Theme): VarMap {
+  const out: VarMap = [];
+  flatten(['font', 'family'], t.font.family, out);
+  for (const [step, value] of Object.entries(t.font.scale)) {
+    out.push([cssVarName('font', 'size', step), value.size]);
+    out.push([cssVarName('line', 'height', step), value.lineHeight]);
+  }
+  flatten(['font', 'weight'], t.font.weight, out);
+  flatten(['letter', 'spacing'], t.font.letterSpacing, out);
+  flatten(['space'], t.space, out);
+  flatten(['size'], t.size, out);
+  flatten(['radius'], t.radius, out);
+  flatten(['z'], t.zIndex, out);
+  flatten(['duration'], t.motion.duration, out);
+  flatten(['easing'], t.motion.easing, out);
+  flatten(['motion'], t.motion.scale, out);
+  // Risk bands alias the status set so a band can never drift from its semantic colour.
+  for (const level of RISK_LEVELS) {
+    const tone = t.risk[level].tone;
+    for (const key of TONE_KEYS) {
+      out.push([cssVarName('color', 'risk', level, key), cssVar('color', 'status', tone, key)]);
+    }
+  }
+  return out;
+}
+
+function themedVars(t: Theme, name: ThemeName): VarMap {
+  const c = t.color[name];
+  const out: VarMap = [];
+  flatten(['color', 'surface'], c.surface, out);
+  flatten(['color', 'text'], c.text, out);
+  flatten(['color', 'border'], c.border, out);
+  out.push([cssVarName('color', 'focus', 'ring'), c.focusRing]);
+  out.push([cssVarName('color', 'scrim'), c.scrim]);
+  for (const tone of STATUS_TONES) {
+    flatten(['color', 'status', tone], { ...c.status[tone] }, out);
+  }
+  flatten(['color', 'brand'], { ...c.brand }, out);
+  for (const level of LEVELS) {
+    flatten(['color', 'level', level], { ...t.level[name][level] }, out);
+  }
+  flatten(['shadow'], t.shadow[name], out);
+  return out;
+}
+
+const TONE_KEYS = ['fg', 'subtleBg', 'subtleFg', 'solid', 'onSolid'] as const;
+
+/**
+ * Contextual hooks: an element with data-tone / data-risk / data-level exposes local
+ * --cs-tone-* / --cs-level-* variables, so one component stylesheet handles every variant.
+ */
+function contextualBlocks(t: Theme): string {
+  const out: string[] = [];
+  const toneVars = (tone: string): VarMap =>
+    TONE_KEYS.map((k) => [`--cs-tone-${kebab(k)}`, cssVar('color', 'status', tone, k)]);
+  for (const tone of STATUS_TONES) {
+    const risks = RISK_LEVELS.filter((r) => t.risk[r].tone === tone).map(
+      (r) => `[data-risk='${r}']`,
+    );
+    out.push(block([`[data-tone='${tone}']`, ...risks].join(',\n'), toneVars(tone)));
+  }
+  out.push(
+    block("[data-tone='neutral']", [
+      ['--cs-tone-fg', cssVar('color', 'text', 'secondary')],
+      ['--cs-tone-subtle-bg', cssVar('color', 'surface', 's3')],
+      ['--cs-tone-subtle-fg', cssVar('color', 'text', 'primary')],
+      ['--cs-tone-solid', cssVar('color', 'brand', 'primary')],
+      ['--cs-tone-on-solid', cssVar('color', 'brand', 'onPrimary')],
+    ]),
+  );
+  for (const level of LEVELS) {
+    out.push(
+      block(`[data-level='${level}']`, [
+        ['--cs-level-fg', cssVar('color', 'level', level, 'fg')],
+        ['--cs-level-subtle-bg', cssVar('color', 'level', level, 'subtleBg')],
+      ]),
+    );
+  }
+  return out.join('\n');
+}
+
+function block(selector: string, vars: VarMap, extra: string[] = [], indent = ''): string {
+  const lines = [
+    ...extra.map((l) => `${indent}  ${l}`),
+    ...vars.map(([k, v]) => `${indent}  ${k}: ${v};`),
+  ];
+  return `${indent}${selector} {\n${lines.join('\n')}\n${indent}}\n`;
+}
+
+/**
+ * Serialise the theme to CSS custom properties. The output is committed as
+ * `tokens.generated.css` and guarded by a file-snapshot test; regenerate with `vitest -u`.
+ */
+export function toCss(t: Theme): string {
+  const reduced: VarMap = [];
+  flatten(['duration'], t.motion.reducedDuration, reduced);
+  flatten(['motion'], t.motion.reducedScale, reduced);
+
+  const parts = [
+    '/* GENERATED by design/tokens/toCss.ts. Do not edit; run `npx vitest -u` to regenerate. */\n',
+    block(':root', staticVars(t)),
+  ];
+  for (const name of THEME_NAMES) {
+    const selector =
+      name === 'dark' ? ":root,\n:root[data-theme='dark']" : `:root[data-theme='${name}']`;
+    parts.push(block(selector, themedVars(t, name), [`color-scheme: ${name};`]));
+  }
+  parts.push(contextualBlocks(t));
+  parts.push(block(":root[data-motion='reduced']", reduced));
+  parts.push(
+    `@media (prefers-reduced-motion: reduce) {\n${block(":root:not([data-motion='full'])", reduced, [], '  ')}}\n`,
+  );
+  return parts.join('\n');
+}

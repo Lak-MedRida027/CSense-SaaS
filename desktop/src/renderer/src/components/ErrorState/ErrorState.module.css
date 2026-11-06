@@ -1,0 +1,28 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--cs-space-3);
+  padding: var(--cs-space-9) var(--cs-space-6);
+}
+
+.compact {
+  padding: var(--cs-space-6) var(--cs-space-4);
+}
+
+.icon {
+  color: var(--cs-color-status-critical-fg);
+}
+
+.title {
+  font-weight: var(--cs-font-weight-semibold);
+}
+
+.description {
+  max-width: 48ch;
+  color: var(--cs-color-text-secondary);
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+  margin-bottom: var(--cs-space-2);
+}

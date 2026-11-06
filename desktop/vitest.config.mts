@@ -6,6 +6,8 @@ export default defineProject({
   test: {
     name: 'desktop',
     environment: 'jsdom',
-    include: ['src/renderer/src/**/*.test.tsx'],
+    include: ['src/renderer/src/**/*.test.{ts,tsx}'],
+    setupFiles: ['src/renderer/src/test/setup.ts'],
+    css: { modules: { classNameStrategy: 'non-scoped' } },
   },
 });

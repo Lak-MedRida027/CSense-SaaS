@@ -1,0 +1,39 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-5);
+}
+
+.summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--cs-space-3);
+}
+
+.heading {
+  font-size: var(--cs-font-size-md);
+  font-weight: var(--cs-font-weight-medium);
+  color: var(--cs-color-text-secondary);
+}
+
+.composite {
+  font-size: var(--cs-font-size-2xl);
+  font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-color-text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.outOf {
+  color: var(--cs-color-text-muted);
+}
+
+.list {
+  display: grid;
+  gap: var(--cs-space-4);
+}
+
+.empty {
+  color: var(--cs-color-text-muted);
+}

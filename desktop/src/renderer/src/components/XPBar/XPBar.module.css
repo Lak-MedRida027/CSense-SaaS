@@ -1,0 +1,36 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-2);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--cs-space-4);
+}
+
+.xp {
+  font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.caption {
+  font-size: var(--cs-font-size-sm);
+  color: var(--cs-color-text-secondary);
+}
+
+.track {
+  height: 10px;
+  border-radius: var(--cs-radius-pill);
+  background: var(--cs-color-border-subtle);
+  overflow: hidden;
+}
+
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cs-level-fg);
+  transition: width var(--cs-duration-deliberate) var(--cs-easing-standard);
+}

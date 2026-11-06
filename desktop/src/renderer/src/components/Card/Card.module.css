@@ -1,0 +1,81 @@
+.root {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-5);
+  min-width: 0;
+  background: var(--cs-color-surface-s1);
+  border: 1px solid var(--cs-color-border-subtle);
+  border-radius: var(--cs-radius-lg);
+}
+
+.pad-none {
+  padding: 0;
+}
+.pad-md {
+  padding: var(--cs-space-6);
+}
+.pad-lg {
+  padding: var(--cs-space-8);
+}
+
+.e0 {
+  box-shadow: var(--cs-shadow-e0);
+}
+.e1 {
+  box-shadow: var(--cs-shadow-e1);
+}
+.e2 {
+  box-shadow: var(--cs-shadow-e2);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cs-space-4);
+  min-height: var(--cs-size-control-sm);
+}
+
+.title {
+  font-size: var(--cs-font-size-lg);
+  line-height: var(--cs-line-height-lg);
+}
+
+.actions {
+  display: flex;
+  gap: var(--cs-space-3);
+  align-items: center;
+}
+
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-4);
+  color: var(--cs-color-text-secondary);
+}
+
+/* Stretched-link pattern for clickable cards: the heading's link/button covers the card. */
+.stretch::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: var(--cs-radius-lg);
+}
+
+.stretch:focus-visible {
+  outline: none;
+}
+
+.stretch:focus-visible::after {
+  outline: var(--cs-size-focus-ring-width) solid var(--cs-color-focus-ring);
+  outline-offset: var(--cs-size-focus-ring-offset);
+}
+
+.interactive {
+  transition: border-color var(--cs-duration-fast) var(--cs-easing-standard);
+}
+
+.interactive:hover {
+  border-color: var(--cs-color-border-strong);
+}

@@ -1,0 +1,67 @@
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-2);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-1);
+}
+
+.tipWrap {
+  display: flex;
+  width: 100%;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--cs-space-3);
+  width: 100%;
+  min-height: var(--cs-size-target-min);
+  padding: 0 var(--cs-space-4);
+  border: 0;
+  border-left: 3px solid transparent;
+  border-radius: var(--cs-radius-md);
+  background: transparent;
+  color: var(--cs-color-text-primary);
+  text-align: left;
+  font-size: var(--cs-font-size-sm);
+  cursor: pointer;
+  transition: background-color var(--cs-duration-fast) var(--cs-easing-standard);
+}
+
+.item:hover:not([aria-disabled='true']) {
+  background: var(--cs-color-surface-s3);
+}
+
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.completed .icon {
+  color: var(--cs-color-status-success-fg);
+}
+
+.in_progress .icon,
+.unlocked .icon {
+  color: var(--cs-color-status-info-fg);
+}
+
+.locked {
+  color: var(--cs-color-text-secondary);
+  cursor: not-allowed;
+}
+
+/* Current = bold + left bar + tint, not colour alone. */
+.current {
+  background: var(--cs-color-brand-subtle);
+  border-left-color: var(--cs-color-brand-primary);
+  font-weight: var(--cs-font-weight-semibold);
+}

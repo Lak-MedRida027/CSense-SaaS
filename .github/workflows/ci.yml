@@ -63,6 +63,12 @@ jobs:
       - run: npm ci
       - run: npm run build
       - run: npm run test:e2e
+      # Rebuilds the desktop app in styleguide mode and runs axe (incl. colour contrast) in Electron.
+      # The plain test:e2e run above skips this spec because the production build has no styleguide.
+      - name: Accessibility gate (axe on the styleguide build)
+        run: npm run test:a11y -w @csense/desktop
+        env:
+          CSENSE_REQUIRE_STYLEGUIDE: '1'
       - if: failure()
         uses: actions/upload-artifact@v4
         with:

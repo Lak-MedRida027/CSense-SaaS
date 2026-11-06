@@ -1,0 +1,20 @@
+.shell {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: var(--cs-color-surface-canvas);
+  color: var(--cs-color-text-primary);
+}
+
+.center {
+  text-align: center;
+}
+
+.title {
+  font-size: var(--cs-font-size-4xl);
+  line-height: var(--cs-line-height-4xl);
+}
+
+.subtitle {
+  color: var(--cs-color-text-secondary);
+}

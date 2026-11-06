@@ -1,22 +1,18 @@
 import { EXPECTED_MODULE_COUNT } from '@csense/shared';
+import { useTheme } from './design/theme/useTheme';
+import styles from './App.module.css';
 
-/** Phase 0 empty shell. The security gate and screens arrive in Phases 5-7. */
+/**
+ * Phase 0/1 empty shell, now styled from design tokens. The security gate and real screens are
+ * wired in Phases 5-7 (the presentational screens live in ./screens).
+ */
 export function App() {
+  const { brand } = useTheme();
   return (
-    <main
-      style={{
-        minHeight: '100vh',
-        display: 'grid',
-        placeItems: 'center',
-        margin: 0,
-        background: '#0b0f17',
-        color: '#e6edf3',
-        fontFamily: 'system-ui, sans-serif',
-      }}
-    >
-      <div style={{ textAlign: 'center' }}>
-        <h1 style={{ margin: 0 }}>CSense</h1>
-        <p style={{ opacity: 0.7 }}>
+    <main className={styles.shell}>
+      <div className={styles.center}>
+        <h1 className={styles.title}>{brand.appName}</h1>
+        <p className={styles.subtitle}>
           Security awareness training · {EXPECTED_MODULE_COUNT} modules
         </p>
       </div>

@@ -1,0 +1,139 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--cs-space-6);
+}
+
+.levelCard {
+  grid-column: span 5;
+}
+
+.nextCard {
+  grid-column: span 7;
+}
+
+.modules,
+.wide {
+  grid-column: 1 / -1;
+}
+
+.levelBody {
+  display: flex;
+  align-items: center;
+  gap: var(--cs-space-6);
+}
+
+.levelText {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--cs-space-4);
+  flex: 1;
+  min-width: 0;
+}
+
+.levelText > :last-child {
+  width: 100%;
+}
+
+.ringXp {
+  font-size: var(--cs-font-size-2xl);
+  font-weight: var(--cs-font-weight-bold);
+}
+
+.ringUnit {
+  font-size: var(--cs-font-size-xs);
+  color: var(--cs-color-text-secondary);
+}
+
+.nextBody {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--cs-space-3);
+}
+
+.nextEyebrow {
+  font-size: var(--cs-font-size-sm);
+  font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-color-text-secondary);
+}
+
+.nextTitle {
+  font-size: var(--cs-font-size-2xl);
+  line-height: var(--cs-line-height-2xl);
+  font-weight: var(--cs-font-weight-semibold);
+}
+
+.nextMeta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cs-space-2);
+  margin-bottom: var(--cs-space-3);
+  font-size: var(--cs-font-size-sm);
+  color: var(--cs-color-text-secondary);
+}
+
+.nextMeta svg:not(:first-child) {
+  margin-left: var(--cs-space-4);
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--cs-space-6);
+  margin-bottom: var(--cs-space-5);
+}
+
+.sectionTitle {
+  font-size: var(--cs-font-size-xl);
+  line-height: var(--cs-line-height-xl);
+}
+
+.modulesProgress {
+  width: 280px;
+}
+
+.moduleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--cs-space-5);
+}
+
+.moduleGrid > li {
+  display: flex;
+}
+
+.moduleGrid > li > * {
+  flex: 1;
+}
+
+.finalBody {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--cs-space-5);
+  flex-wrap: wrap;
+}
+
+.finalLocked {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cs-space-2);
+  color: var(--cs-color-text-secondary);
+}
+
+.loading {
+  display: grid;
+  place-items: center;
+  min-height: 50vh;
+  color: var(--cs-color-text-secondary);
+}
+
+@media (max-width: 1100px) {
+  .levelCard,
+  .nextCard {
+    grid-column: 1 / -1;
+  }
+}

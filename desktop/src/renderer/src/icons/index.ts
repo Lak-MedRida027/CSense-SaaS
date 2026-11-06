@@ -1,0 +1,96 @@
+/**
+ * The CSense icon set: a curated re-export of lucide-react (ISC licence). Import icons from here,
+ * not from lucide-react directly, so the set stays small and consistent.
+ * Icons are decorative by default (`aria-hidden`); give meaning through adjacent text.
+ */
+import {
+  CircleCheck,
+  Info,
+  OctagonAlert,
+  ShieldCheck,
+  TriangleAlert,
+  type LucideIcon,
+} from 'lucide-react';
+import type { RiskIconName, StatusTone } from '../design/tokens';
+
+export {
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+  ArrowUp,
+  ArrowUpDown,
+  Award,
+  Bell,
+  BookOpen,
+  Captions,
+  ChartColumn,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  CircleCheck,
+  CircleDot,
+  CircleX,
+  ClipboardCheck,
+  Clock,
+  Eye,
+  ExternalLink,
+  EyeOff,
+  FileChartColumn,
+  FileText,
+  Flag,
+  GraduationCap,
+  Info,
+  KeyRound,
+  LayoutDashboard,
+  ListChecks,
+  LoaderCircle,
+  Lock,
+  LockOpen,
+  LogOut,
+  Mail,
+  Maximize,
+  Medal,
+  Minimize,
+  Minus,
+  Monitor,
+  Moon,
+  MousePointerClick,
+  OctagonAlert,
+  Pause,
+  Play,
+  RotateCcw,
+  Search,
+  Settings,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Star,
+  Sun,
+  Target,
+  TriangleAlert,
+  Trophy,
+  UserCog,
+  Users,
+  Volume2,
+  VolumeX,
+  X,
+  Zap,
+} from 'lucide-react';
+export type { LucideIcon } from 'lucide-react';
+
+/** One icon per status tone; each has a different silhouette so tone is never colour-only. */
+export const statusIcon: Record<StatusTone, LucideIcon> = {
+  info: Info,
+  success: CircleCheck,
+  caution: TriangleAlert,
+  critical: OctagonAlert,
+};
+
+export const riskIcon: Record<RiskIconName, LucideIcon> = {
+  'shield-check': ShieldCheck,
+  'triangle-alert': TriangleAlert,
+  'octagon-alert': OctagonAlert,
+};

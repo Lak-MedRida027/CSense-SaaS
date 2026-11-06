@@ -1,0 +1,9 @@
+.root {
+  min-width: 240px;
+  flex: 1;
+}
+
+/* Native search cancel button is replaced by the accessible Clear IconButton. */
+.root input::-webkit-search-cancel-button {
+  appearance: none;
+}

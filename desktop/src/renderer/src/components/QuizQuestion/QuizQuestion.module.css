@@ -1,0 +1,41 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-5);
+}
+
+.counter {
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+  font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: var(--cs-letter-spacing-caps);
+  text-transform: uppercase;
+  color: var(--cs-color-text-secondary);
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.stem {
+  padding: 0;
+  margin-bottom: var(--cs-space-6);
+  font-size: var(--cs-font-size-xl);
+  line-height: var(--cs-line-height-xl);
+  font-weight: var(--cs-font-weight-semibold);
+  max-width: var(--cs-size-reading-max);
+}
+
+.options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-3);
+}
+
+.unanswered {
+  color: var(--cs-color-status-caution-fg);
+  font-size: var(--cs-font-size-sm);
+}

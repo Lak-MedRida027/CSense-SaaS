@@ -1,0 +1,131 @@
+/* Shared field chrome; Select, RadioGroup and Checkbox reuse these classes. */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-2);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+  font-weight: var(--cs-font-weight-medium);
+  color: var(--cs-color-text-primary);
+}
+
+.required {
+  color: var(--cs-color-text-secondary);
+}
+
+.hint {
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+  color: var(--cs-color-text-secondary);
+}
+
+.control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: var(--cs-size-control-md);
+  border: 1px solid var(--cs-color-border-strong);
+  border-radius: var(--cs-radius-md);
+  background: var(--cs-color-surface-s2);
+  transition: border-color var(--cs-duration-fast) var(--cs-easing-standard);
+}
+
+.control:hover {
+  border-color: var(--cs-color-text-secondary);
+}
+
+/* The ring sits on the wrapper so the end adornment stays inside it. */
+.control:focus-within {
+  outline: var(--cs-size-focus-ring-width) solid var(--cs-color-focus-ring);
+  outline-offset: var(--cs-size-focus-ring-offset);
+}
+
+.control:focus-within :focus-visible {
+  outline: none;
+}
+
+.control:focus-within .end :focus-visible {
+  outline: var(--cs-size-focus-ring-width) solid var(--cs-color-focus-ring);
+  outline-offset: -2px;
+}
+
+.hasError {
+  border-color: var(--cs-color-status-critical-fg);
+  border-width: 2px;
+}
+
+.input {
+  flex: 1;
+  min-width: 0;
+  min-height: calc(var(--cs-size-control-md) - 2px);
+  padding: 0 var(--cs-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--cs-color-text-primary);
+  font-size: var(--cs-font-size-md);
+}
+
+.input::placeholder {
+  color: var(--cs-color-text-muted);
+  opacity: 1;
+}
+
+.input:disabled {
+  cursor: not-allowed;
+  color: var(--cs-color-text-disabled);
+}
+
+.withLeading {
+  padding-left: var(--cs-space-2);
+}
+
+.leading {
+  flex: none;
+  margin-left: var(--cs-space-4);
+  color: var(--cs-color-text-secondary);
+}
+
+.end {
+  display: flex;
+  align-items: center;
+  padding-right: var(--cs-space-1);
+}
+
+.isDisabled .control {
+  background: var(--cs-color-surface-s1);
+  border-color: var(--cs-color-border-subtle);
+}
+
+.isDisabled .label {
+  color: var(--cs-color-text-secondary);
+}
+
+.status:empty {
+  display: none;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: var(--cs-space-2);
+  font-size: var(--cs-font-size-sm);
+  color: var(--cs-color-status-caution-fg);
+}
+
+.error {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cs-space-2);
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+  color: var(--cs-color-status-critical-fg);
+}
+
+.error svg {
+  flex: none;
+  margin-top: 2px;
+}

@@ -1,0 +1,18 @@
+.root {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: currentColor;
+}
+
+/* Spinners are the one sanctioned looping animation (an essential loading cue). Under reduced
+   motion the global rule stops it after one turn; the text label still conveys the state. */
+.icon {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
