@@ -1,0 +1,57 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-5);
+}
+
+.counter {
+  font-size: var(--cs-font-size-sm);
+  font-weight: var(--cs-font-weight-semibold);
+  letter-spacing: var(--cs-letter-spacing-caps);
+  text-transform: uppercase;
+  color: var(--cs-color-text-secondary);
+}
+
+.artifact {
+  padding: var(--cs-space-5);
+  border-radius: var(--cs-radius-md);
+  border: 1px solid var(--cs-color-border-subtle);
+  background: var(--cs-color-surface-s2);
+  font-family: var(--cs-font-family-mono);
+  font-size: var(--cs-font-size-sm);
+}
+
+.fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.prompt {
+  padding: 0;
+  margin-bottom: var(--cs-space-5);
+  font-size: var(--cs-font-size-lg);
+  line-height: var(--cs-line-height-lg);
+  font-weight: var(--cs-font-weight-semibold);
+  max-width: var(--cs-size-reading-max);
+}
+
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-3);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--cs-space-4);
+  flex-direction: row-reverse;
+}
+
+.hint {
+  font-size: var(--cs-font-size-sm);
+  color: var(--cs-color-text-secondary);
+}

@@ -1,0 +1,11 @@
+.img {
+  display: block;
+  width: auto;
+  user-select: none;
+}
+
+.text {
+  font-weight: var(--cs-font-weight-semibold);
+  font-size: var(--cs-font-size-xl);
+  letter-spacing: var(--cs-letter-spacing-tight);
+}

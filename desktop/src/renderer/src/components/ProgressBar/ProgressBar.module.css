@@ -1,0 +1,64 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-2);
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--cs-space-4);
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+}
+
+.label {
+  color: var(--cs-color-text-secondary);
+}
+
+.value {
+  color: var(--cs-color-text-primary);
+  font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The track is decorative (about 1.4:1); the value is always available as text. */
+.track {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--cs-radius-pill);
+  background: var(--cs-color-border-subtle);
+}
+
+.sm {
+  height: 6px;
+}
+.md {
+  height: 10px;
+}
+
+.fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--cs-tone-fg);
+  transition: width var(--cs-duration-deliberate) var(--cs-easing-standard);
+}
+
+[data-tone='neutral'] .fill {
+  background: var(--cs-color-brand-primary);
+}
+
+.indeterminate {
+  width: 35%;
+  animation: slide 1.2s var(--cs-easing-standard) infinite;
+}
+
+@keyframes slide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(300%);
+  }
+}

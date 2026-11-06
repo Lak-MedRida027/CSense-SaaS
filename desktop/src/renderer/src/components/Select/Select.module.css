@@ -1,0 +1,22 @@
+.select {
+  appearance: none;
+  padding-right: var(--cs-space-9);
+  cursor: pointer;
+}
+
+.select:disabled {
+  cursor: not-allowed;
+}
+
+.select option {
+  background: var(--cs-color-surface-s2);
+  color: var(--cs-color-text-primary);
+}
+
+.chevron {
+  position: absolute;
+  right: var(--cs-space-4);
+  display: inline-flex;
+  pointer-events: none;
+  color: var(--cs-color-text-secondary);
+}

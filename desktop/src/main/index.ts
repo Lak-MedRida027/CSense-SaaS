@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
+import { WINDOW_BACKGROUND } from '../renderer/src/design/tokens/electron';
 
 const isDev = !app.isPackaged && Boolean(process.env.ELECTRON_RENDERER_URL);
 
@@ -9,7 +10,8 @@ function createMainWindow(): BrowserWindow {
     height: 800,
     show: false,
     title: 'CSense',
-    backgroundColor: '#0b0f17',
+    // Matches the dark surface-canvas token so there is no flash before first paint.
+    backgroundColor: WINDOW_BACKGROUND.dark,
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),

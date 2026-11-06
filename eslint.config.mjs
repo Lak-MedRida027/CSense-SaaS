@@ -83,5 +83,28 @@ export default tseslint.config(
     ...jsxA11y.flatConfigs.recommended,
   },
 
+  // Design system: UI code takes colour from tokens only (design/tokens -> CSS variables).
+  // CSS modules are covered by desktop/src/renderer/src/design/noColourLiterals.test.ts.
+  {
+    files: ['desktop/src/renderer/src/{components,screens,layouts}/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[value=/#[0-9a-fA-F]{3,8}\\b/]',
+          message: 'Use a design token (var(--cs-...)) instead of a hex colour literal.',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/#[0-9a-fA-F]{3,8}\\b/]',
+          message: 'Use a design token (var(--cs-...)) instead of a hex colour literal.',
+        },
+        {
+          selector: 'Literal[value=/\\b(rgb|hsl)a?\\(/]',
+          message: 'Use a design token (var(--cs-...)) instead of an rgb()/hsl() colour literal.',
+        },
+      ],
+    },
+  },
+
   prettier,
 );

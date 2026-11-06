@@ -1,0 +1,44 @@
+.root {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+}
+
+.root svg {
+  position: absolute;
+  inset: 0;
+}
+
+.track {
+  stroke: var(--cs-color-border-subtle);
+}
+
+.fill {
+  transition: stroke-dashoffset var(--cs-duration-deliberate) var(--cs-easing-standard);
+}
+
+.byTone .fill {
+  stroke: var(--cs-tone-fg);
+}
+
+.byTone[data-tone='neutral'] .fill {
+  stroke: var(--cs-color-brand-primary);
+}
+
+.byLevel .fill {
+  stroke: var(--cs-level-fg);
+}
+
+.center {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.root[aria-busy='true'] .track {
+  stroke-dasharray: 4 6;
+}

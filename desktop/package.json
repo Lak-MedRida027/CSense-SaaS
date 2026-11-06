@@ -8,23 +8,29 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "preview": "electron-vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "build:styleguide": "electron-vite build --mode styleguide",
+    "test:a11y": "npm run build:styleguide && playwright test e2e/styleguide.a11y.spec.ts"
   },
   "dependencies": {
     "@csense/shared": "0.1.0",
+    "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@playwright/test": "^1.64.1",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/react": "^16.3.3",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.2",
+    "axe-core": "^4.14.0",
     "electron": "^45.0.0",
     "electron-vite": "^6.0.0",
     "jsdom": "^29.1.1",
-    "vite": "^8.3.5"
+    "vite": "^8.3.5",
+    "vitest-axe": "^0.1.0"
   }
 }

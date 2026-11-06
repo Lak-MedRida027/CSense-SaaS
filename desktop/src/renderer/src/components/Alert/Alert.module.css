@@ -1,0 +1,72 @@
+.root {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--cs-space-4);
+  padding: var(--cs-space-4) var(--cs-space-5);
+  border-radius: var(--cs-radius-md);
+  border: 1px solid transparent;
+  border-left-width: 4px;
+}
+
+.icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-2);
+  min-width: 0;
+}
+
+.title {
+  font-weight: var(--cs-font-weight-semibold);
+}
+
+.content {
+  color: var(--cs-color-text-primary);
+  font-size: var(--cs-font-size-sm);
+  line-height: var(--cs-line-height-sm);
+}
+
+.action {
+  margin-top: var(--cs-space-2);
+}
+
+.info {
+  background: var(--cs-color-status-info-subtle-bg);
+  border-color: var(--cs-color-status-info-fg);
+}
+.info .icon,
+.info .title {
+  color: var(--cs-color-status-info-subtle-fg);
+}
+
+.success {
+  background: var(--cs-color-status-success-subtle-bg);
+  border-color: var(--cs-color-status-success-fg);
+}
+.success .icon,
+.success .title {
+  color: var(--cs-color-status-success-subtle-fg);
+}
+
+.caution {
+  background: var(--cs-color-status-caution-subtle-bg);
+  border-color: var(--cs-color-status-caution-fg);
+}
+.caution .icon,
+.caution .title {
+  color: var(--cs-color-status-caution-subtle-fg);
+}
+
+.critical {
+  background: var(--cs-color-status-critical-subtle-bg);
+  border-color: var(--cs-color-status-critical-fg);
+}
+.critical .icon,
+.critical .title {
+  color: var(--cs-color-status-critical-subtle-fg);
+}

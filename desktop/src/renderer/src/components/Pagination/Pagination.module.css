@@ -1,0 +1,41 @@
+.root {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--cs-space-2);
+}
+
+.list {
+  display: flex;
+  gap: var(--cs-space-1);
+}
+
+.page {
+  min-width: var(--cs-size-target-min);
+  height: var(--cs-size-target-min);
+  border: 1px solid transparent;
+  border-radius: var(--cs-radius-md);
+  background: transparent;
+  color: var(--cs-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.page:hover {
+  background: var(--cs-color-surface-s3);
+  color: var(--cs-color-text-primary);
+}
+
+.current {
+  border-color: var(--cs-color-border-strong);
+  background: var(--cs-color-brand-subtle);
+  color: var(--cs-color-text-primary);
+  font-weight: var(--cs-font-weight-semibold);
+}
+
+.gap {
+  display: grid;
+  place-items: center;
+  width: var(--cs-space-7);
+  color: var(--cs-color-text-muted);
+}

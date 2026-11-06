@@ -1,0 +1,73 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-4);
+}
+
+.summary {
+  font-size: var(--cs-font-size-sm);
+  color: var(--cs-color-text-secondary);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(5, var(--cs-size-target-min));
+  gap: var(--cs-space-2);
+}
+
+.cell {
+  position: relative;
+  width: var(--cs-size-target-min);
+  height: var(--cs-size-target-min);
+  border: 1px dashed var(--cs-color-border-strong);
+  border-radius: var(--cs-radius-md);
+  background: transparent;
+  color: var(--cs-color-text-secondary);
+  font-weight: var(--cs-font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cell:hover {
+  background: var(--cs-color-surface-s3);
+}
+
+/* Answered = solid border + filled background (shape and fill, not hue). */
+.answered {
+  border-style: solid;
+  background: var(--cs-color-surface-s3);
+  color: var(--cs-color-text-primary);
+}
+
+.current {
+  outline: 2px solid var(--cs-color-brand-primary);
+  outline-offset: 2px;
+}
+
+.flag {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  color: var(--cs-color-status-caution-fg);
+}
+
+.legend {
+  display: flex;
+  gap: var(--cs-space-5);
+  font-size: var(--cs-font-size-xs);
+  color: var(--cs-color-text-secondary);
+}
+
+.legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--cs-space-2);
+}
+
+.swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1px dashed var(--cs-color-border-strong);
+  border-radius: var(--cs-radius-sm);
+}
