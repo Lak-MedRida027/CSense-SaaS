@@ -57,6 +57,18 @@ export default tseslint.config(
     rules: { 'no-console': 'error' },
   },
 
+  // Server tests: supertest types `res.body` as `any`, so the no-unsafe-* family only produces noise
+  // there. Production code under server/src keeps the full strict rule set.
+  {
+    files: ['server/test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+    },
+  },
+
   // Desktop main + preload run in Node/Electron.
   {
     files: ['desktop/src/main/**/*.ts', 'desktop/src/preload/**/*.ts', 'desktop/e2e/**/*.ts'],

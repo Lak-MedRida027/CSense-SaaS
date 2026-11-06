@@ -1,3 +1,4 @@
+import '../db/mongooseSettings.js';
 export { User, Employee, Administrator } from './User.js';
 export { Module } from './Module.js';
 export { Badge } from './Badge.js';
@@ -6,3 +7,5 @@ export { Assessment, Quiz, FinalTest } from './Assessment.js';
 export { QuizAttempt } from './QuizAttempt.js';
 export { RiskProfile } from './RiskProfile.js';
 export { PhishingSimulation } from './PhishingSimulation.js';
+export { AuthSession, type AuthSessionRevokeReason } from './AuthSession.js';
+export { AuditLog, AuditLogImmutableError } from './AuditLog.js';

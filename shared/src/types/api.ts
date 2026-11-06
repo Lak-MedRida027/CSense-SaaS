@@ -1,7 +1,9 @@
+import type { ErrorCode } from '../constants/errors.js';
+
 /** Uniform error envelope returned by every API error response. */
 export interface ApiError {
   error: {
-    code: string;
+    code: ErrorCode;
     message: string;
     details?: unknown;
   };

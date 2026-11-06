@@ -35,6 +35,34 @@ const userSchema = new Schema(
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ role: 1, isActive: 1 });
 userSchema.index({ department: 1 });
+// At most one account without a creator: the bootstrap administrator (decision U20). Two concurrent
+// bootstrap runs cannot both insert; the loser gets a duplicate-key error (P2-L3).
+userSchema.index(
+  { createdBy: 1 },
+  { unique: true, partialFilterExpression: { createdBy: { $type: 'null' } } },
+);
+
+/**
+ * Invariant (decision U20): only the bootstrap administrator may have `createdBy: null`.
+ * Registered on the base schema BEFORE the discriminators are created, so both inherit it.
+ * The bootstrap script opts in with `doc.$locals.bootstrap = true`.
+ */
+interface CreatedByGuard {
+  isNew: boolean;
+  createdBy?: unknown;
+  $locals: { bootstrap?: boolean };
+  invalidate: (path: string, message: string) => unknown;
+}
+
+userSchema.pre('validate', function (this: CreatedByGuard) {
+  const bootstrap = this.$locals.bootstrap === true;
+  if (this.isNew && this.createdBy == null && !bootstrap) {
+    this.invalidate(
+      'createdBy',
+      'createdBy is required for every account except the bootstrap administrator',
+    );
+  }
+});
 
 export type UserDoc = InferSchemaType<typeof userSchema>;
 export const User = model('User', userSchema);
