@@ -1,7 +1,8 @@
 import type { ErrorRequestHandler } from 'express';
 import type { Logger } from 'pino';
-import type { ApiError } from '@csense/shared';
-import { HttpError } from '../lib/httpError.js';
+import { ZodError } from 'zod';
+import type { ApiError, ErrorCode } from '@csense/shared';
+import { HttpError, type ValidationIssue } from '../lib/httpError.js';
 
 interface BodyParserError {
   type?: string;
@@ -12,11 +13,26 @@ interface BodyParserError {
 export function errorHandler(logger: Logger): ErrorRequestHandler {
   return (err: unknown, _req, res, _next) => {
     let status = 500;
-    let code = 'INTERNAL_ERROR';
+    let code: ErrorCode = 'INTERNAL_ERROR';
     let message = 'Internal server error';
+    let details: unknown;
 
     if (err instanceof HttpError) {
-      ({ status, code, message } = err);
+      ({ status, code, message, details } = err);
+      if (status === 401 && code === 'UNAUTHENTICATED') {
+        res.setHeader('WWW-Authenticate', 'Bearer');
+      }
+    } else if (err instanceof ZodError) {
+      // Fallback: schemas parsed outside the registry validator. Never echo input values.
+      status = 400;
+      code = 'VALIDATION_ERROR';
+      message = 'Request validation failed';
+      const issues: ValidationIssue[] = err.issues.map((i) => ({
+        location: 'body',
+        path: i.path.join('.'),
+        message: i.message,
+      }));
+      details = { issues };
     } else if (typeof err === 'object' && err !== null) {
       const { type, status: bpStatus } = err as BodyParserError;
       if (type === 'entity.too.large') {
@@ -38,7 +54,9 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
       logger.error({ err }, 'Unhandled error');
     }
 
-    const body: ApiError = { error: { code, message } };
+    const body: ApiError = {
+      error: { code, message, ...(details === undefined ? {} : { details }) },
+    };
     res.status(status).json(body);
   };
 }

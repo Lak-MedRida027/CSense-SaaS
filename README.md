@@ -26,6 +26,23 @@ npm run dev                 # shared (watch) + API on :4000 + Electron window
 ```
 Check the API: `curl http://localhost:4000/api/v1/health/ready` returns `{"status":"ready"}`.
 
+The API refuses to start until `JWT_ACCESS_SECRET` and `REFRESH_TOKEN_SECRET` are set in `.env`
+(each base64url, at least 43 characters with at least 16 distinct ones, and different). `.env.example` shows how to generate them.
+
+## First administrator
+Accounts are created by administrators only, so the very first one is created from a shell
+(decision U20). It is not available over HTTP.
+```bash
+# 1. In .env set BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_NAME, BOOTSTRAP_ADMIN_PASSWORD
+#    (password: at least 12 characters, at most 72 bytes)
+npm run bootstrap:admin:dev -w @csense/server     # from source
+# or, after `npm run build`:  npm run bootstrap:admin -w @csense/server
+# 2. Remove BOOTSTRAP_ADMIN_PASSWORD from .env afterwards.
+```
+The command is idempotent: if any administrator already exists it logs that and exits without
+changing anything. It never generates or prints a password, and it writes a critical
+`admin.bootstrapped` audit entry. Further accounts are created with `POST /api/v1/admin/users`.
+
 ## Scripts
 | Command | What it does |
 |---|---|

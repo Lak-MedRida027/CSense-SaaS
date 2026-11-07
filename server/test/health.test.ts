@@ -1,10 +1,15 @@
-import { pino } from 'pino';
+import type { Express } from 'express';
 import request from 'supertest';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
+import { silentLogger, testConfig } from './helpers/testConfig.js';
 
-const logger = pino({ level: 'silent' });
-const app = createApp({ logger, jsonBodyLimit: '1kb' });
+const logger = silentLogger;
+let app: Express;
+
+beforeAll(async () => {
+  app = await createApp({ logger, config: testConfig({ jsonBodyLimit: '1kb' }) });
+});
 
 describe('health endpoints', () => {
   it('GET /api/v1/health returns 200 ok', async () => {
@@ -20,7 +25,11 @@ describe('health endpoints', () => {
   });
 
   it('GET /api/v1/health/ready returns 503 without internal detail when MongoDB is down', async () => {
-    const downApp = createApp({ logger, jsonBodyLimit: '1kb', isReady: () => false });
+    const downApp = await createApp({
+      logger,
+      config: testConfig({ jsonBodyLimit: '1kb' }),
+      isReady: () => false,
+    });
     const res = await request(downApp).get('/api/v1/health/ready');
     expect(res.status).toBe(503);
     expect(res.body).toEqual({ status: 'unavailable' });
@@ -45,6 +54,13 @@ describe('security baseline', () => {
     expect(res.headers['x-content-type-options']).toBe('nosniff');
     expect(res.headers['content-security-policy']).toBeDefined();
     expect(res.headers['strict-transport-security']).toBeDefined();
+  });
+
+  it('sets Cache-Control: no-store and a server-generated request id on API responses', async () => {
+    const res = await request(app).get('/api/v1/health').set('X-Request-Id', 'attacker-chosen');
+    expect(res.headers['cache-control']).toBe('no-store');
+    expect(res.headers['x-request-id']).toBeDefined();
+    expect(res.headers['x-request-id']).not.toBe('attacker-chosen');
   });
 
   it('enforces the JSON body limit', async () => {

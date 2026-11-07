@@ -2,13 +2,16 @@
 
 Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs FRs.
 
-**Implemented in Phase 0:** `GET /health` and `GET /health/ready` only. Every other route below is a
-contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+**Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
+routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
+`GET /config/features`. These eight are the whole route inventory (snapshot-tested in
+`server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
 |---|---|
 | public | No token |
+| refresh | No access token; a valid refresh token in the JSON body (ADR 0004) |
 | auth | Any valid access token |
 | employee | Role `employee` |
 | admin | Role `administrator` |
@@ -16,13 +19,53 @@ contract. No stubs are registered, so unimplemented routes return 404 (deny by d
 
 Anything not listed returns 404. Routes behind a disabled feature flag also return 404.
 There is **no self-registration**: `POST /auth/register` must return 404 (tested).
+Every route is declared in the server's route registry with one of these levels; the central access
+gate rejects anything not in the registry (ADR 0005). Role matching is exact: an administrator does
+not inherit `employee` routes.
+
+## Authentication (Phase 2, ADR 0004)
+- Access token: JWT (HS256), sent as `Authorization: Bearer <token>`, lifetime 15 min. Claims:
+  `sub`, `role`, `sid`, `iss`, `aud`, `iat`, `exp`, `jti` only.
+- Refresh token: opaque string, returned and accepted **in the JSON body** (never a cookie),
+  rotated on every use, absolute lifetime 7 days from login. Reusing a rotated refresh token revokes
+  the whole session. Only the Electron main process handles it (Phase 5).
+- Every auth response carries `Cache-Control: no-store`. A deactivated account, a logged-out
+  session or a revoked session makes its access tokens fail with 401 on the next request.
+
+Token response (login adds `user`):
+```json
+{
+  "tokenType": "Bearer",
+  "accessToken": "<jwt>",
+  "accessTokenExpiresIn": 900,
+  "refreshToken": "<opaque>",
+  "refreshTokenExpiresAt": "2026-11-13T09:00:00.000Z",
+  "user": { "id": "...", "name": "...", "email": "...", "role": "employee", "isActive": true, "createdBy": "...", "createdAt": "...", "totalXP": 0, "level": "Apprentice" }
+}
+```
 
 ## Error envelope
 ```json
 { "error": { "code": "NOT_FOUND", "message": "Resource not found", "details": {} } }
 ```
-`details` is optional. Authentication failures use one generic message to prevent account
+`details` is only used by `VALIDATION_ERROR` (`{ issues: [{ location, path, message }] }`, never the
+submitted value). Authentication failures use one generic message per endpoint to prevent account
 enumeration. Stack traces and internal messages are never returned.
+
+| Code | Status | When |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | body, params or query fail the zod schema (including unknown fields) |
+| `INVALID_JSON` | 400 | malformed JSON body |
+| `BAD_REQUEST` | 400 | other client errors from the body parser |
+| `INVALID_CREDENTIALS` | 401 | login failed, for any reason (unknown email, wrong password, deactivated) |
+| `UNAUTHENTICATED` | 401 | access token missing, malformed, invalid, expired, or its user/session is no longer valid. Sent with `WWW-Authenticate: Bearer` |
+| `INVALID_REFRESH_TOKEN` | 401 | refresh token unknown, expired, revoked, reused, or its user is deactivated |
+| `FORBIDDEN` | 403 | authenticated but wrong role |
+| `NOT_FOUND` | 404 | route or resource does not exist (or is not in the registry) |
+| `CONFLICT` | 409 | unique constraint, e.g. email already in use (admin routes only) |
+| `PAYLOAD_TOO_LARGE` | 413 | body over `JSON_BODY_LIMIT` |
+| `RATE_LIMITED` | 429 | rate limit hit; `Retry-After` and `RateLimit` headers set |
+| `INTERNAL_ERROR` | 500 | anything else |
 
 ## Routes
 
@@ -31,15 +74,15 @@ enumeration. Stack traces and internal messages are never returned.
 |---|---|---|---|
 | GET | `/health` → `{status:'ok'}` | public | **0** |
 | GET | `/health/ready` → 200 `{status:'ready'}` / 503 `{status:'unavailable'}` | public | **0** |
-| GET | `/config/features` | auth | 2 |
+| GET | `/config/features` → `{phishing, continuousReview}` | auth | 2 |
 
 ### Authenticate (included by Security Gate and Admin Dashboard)
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| POST | `/auth/login` (rate-limited) | public | 2 |
-| POST | `/auth/refresh` | public + refresh token | 2 |
-| POST | `/auth/logout` | auth | 2 |
-| GET | `/auth/me` | auth | 2 |
+| Method | Route | Body | Response | Auth | Phase |
+|---|---|---|---|---|---|
+| POST | `/auth/login` (rate-limited per email and per IP, failures only) | `{email, password}` | 200 token response + `user` | public | 2 |
+| POST | `/auth/refresh` (rate-limited per IP, failures only) | `{refreshToken}` | 200 token response | refresh | 2 |
+| POST | `/auth/logout` (idempotent; 204 even for an unknown token) | `{refreshToken}` | 204 | refresh | 2 |
+| GET | `/auth/me` | none | 200 `UserDTO` (`EmployeeDTO` / `AdministratorDTO`) | auth | 2 |
 
 ### Interact with Security Gate / Escalate Restricted Access
 | Method | Route | Auth | Phase |
@@ -90,10 +133,14 @@ Completion and badge award are server-side effects of a passing quiz attempt, ne
 ### Manage Users
 | Method | Route | Auth | Phase |
 |---|---|---|---|
-| GET, POST | `/admin/users` | admin | 2 (POST), 7 |
+| POST | `/admin/users` body `{name, email, password, role, department?}` → 201 `UserDTO`; 409 `CONFLICT` on duplicate email; `createdBy` is always the calling admin | admin | 2 |
+| GET | `/admin/users` | admin | 7 |
 | GET, PATCH | `/admin/users/:userId` | admin | 7 |
-| POST | `/admin/users/:userId/deactivate`, `/admin/users/:userId/reactivate` | admin | 7 |
+| POST | `/admin/users/:userId/deactivate` (also revokes all sessions), `/admin/users/:userId/reactivate` | admin | 7 |
+| POST | `/admin/users/:userId/password` (administrator reset, D18) | admin | 7 |
 | PUT | `/admin/users/:userId/module-assignments` | admin | 7 |
+
+The first administrator is created by the `bootstrap:admin` CLI (decision U20), never over HTTP.
 
 ### Manage Module Content
 | Method | Route | Auth | Phase |
@@ -146,4 +193,5 @@ Completion and badge award are server-side effects of a passing quiz attempt, ne
 ## System-triggered use cases (no route)
 Award Badge, Update Risk Profile, Trigger Governance Escalation and Escalate Restricted Access are
 internal services called by the routes above. Each one that escalates writes an immutable audit-log
-entry.
+entry (Phase 2 provides the append-only `AuditLog` model and service). Authentication events
+(login success/failure, refresh-token reuse, logout, user creation, admin bootstrap) are audited too.

@@ -2,6 +2,8 @@ import { Types } from 'mongoose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   Assessment,
+  AuditLog,
+  AuthSession,
   Badge,
   Employee,
   FinalTest,
@@ -26,6 +28,7 @@ const employee = (email: string) => ({
   name: 'Test Employee',
   email,
   passwordHash: 'not-a-real-hash',
+  createdBy: new Types.ObjectId(),
 });
 
 const moduleDoc = (order: number) => ({
@@ -46,6 +49,8 @@ beforeAll(async () => {
     QuizAttempt,
     RiskProfile,
     PhishingSimulation,
+    AuthSession,
+    AuditLog,
   ];
   await Promise.all(models.map((m) => m.syncIndexes()));
 });
@@ -102,6 +107,32 @@ describe('unique indexes', () => {
     await expect(
       Badge.create({ name: 'Other', moduleId, iconMotif: 'shield' }),
     ).rejects.toMatchObject({ code: DUPLICATE_KEY });
+  });
+});
+
+describe('single bootstrap administrator', () => {
+  it('syncIndexes creates a unique partial index on createdBy: null', async () => {
+    await User.syncIndexes();
+    const index = (await User.collection.indexes()).find(
+      (i) => Object.keys(i.key).join(',') === 'createdBy',
+    );
+    expect(index?.unique).toBe(true);
+    expect(index?.partialFilterExpression).toEqual({ createdBy: { $type: 'null' } });
+  });
+
+  it('rejects a second account with createdBy null, but not any number with a creator', async () => {
+    const orphan = (email: string) => {
+      const doc = new Employee({ ...employee(email), createdBy: null });
+      doc.$locals.bootstrap = true;
+      return doc.save();
+    };
+    await orphan('first.orphan@example.com');
+    await expect(orphan('second.orphan@example.com')).rejects.toMatchObject({
+      code: DUPLICATE_KEY,
+    });
+    await Employee.create(employee('with.creator.1@example.com'));
+    await Employee.create(employee('with.creator.2@example.com'));
+    expect(await User.countDocuments({ createdBy: null })).toBe(1);
   });
 });
 
@@ -165,5 +196,38 @@ describe('secrets are hidden by default', () => {
     const found = await Assessment.findById(created._id).lean();
     expect(found?.questions[0]).toBeDefined();
     expect(found?.questions[0]).not.toHaveProperty('correctAnswer');
+  });
+});
+
+describe('auth collections', () => {
+  it('AuthSession has a TTL index on expiresAt that keeps documents 30 days past expiry', async () => {
+    const indexes = await AuthSession.collection.indexes();
+    const ttl = indexes.find((i) => i.key.expiresAt === 1);
+    expect(ttl?.expireAfterSeconds).toBe(30 * 24 * 60 * 60);
+  });
+
+  it('AuthSession never selects or serialises token hashes', async () => {
+    const created = await AuthSession.create({
+      userId: new Types.ObjectId(),
+      currentTokenHash: 'a'.repeat(64),
+      previousTokenHashes: ['b'.repeat(64)],
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    expect(JSON.stringify(created.toJSON())).not.toMatch(/a{64}|b{64}/);
+    const found = await AuthSession.findById(created._id).lean();
+    expect(found).not.toHaveProperty('currentTokenHash');
+    expect(found).not.toHaveProperty('previousTokenHashes');
+  });
+
+  it('AuditLog has the documented query indexes', async () => {
+    const keys = (await AuditLog.collection.indexes()).map((i) => Object.keys(i.key).join(','));
+    expect(keys).toEqual(
+      expect.arrayContaining([
+        'createdAt',
+        'actorId,createdAt',
+        'targetId,createdAt',
+        'action,createdAt',
+      ]),
+    );
   });
 });

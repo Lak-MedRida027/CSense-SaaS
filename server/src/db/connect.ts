@@ -1,6 +1,5 @@
 import mongoose from 'mongoose';
-
-mongoose.set('strictQuery', true);
+import './mongooseSettings.js';
 
 export async function connectDb(uri: string): Promise<typeof mongoose> {
   return mongoose.connect(uri, { serverSelectionTimeoutMS: 10_000 });
