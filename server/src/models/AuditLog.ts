@@ -6,6 +6,7 @@ import {
   AUDIT_TARGET_TYPES,
   ROLES,
 } from '@csense/shared';
+import { rejectAggregateWrites } from './plugins/appendOnly.js';
 import { baseSchemaOptions } from './schemaOptions.js';
 
 export const AUDIT_METADATA_MAX_BYTES = 2048;
@@ -82,6 +83,7 @@ for (const op of [
 auditLogSchema.pre('updateOne', { document: true, query: true }, reject('updateOne'));
 auditLogSchema.pre('deleteOne', { document: true, query: true }, reject('deleteOne'));
 auditLogSchema.pre('bulkWrite', reject('bulkWrite'));
+rejectAggregateWrites(auditLogSchema, (operation) => new AuditLogImmutableError(operation));
 
 export type AuditLogDoc = InferSchemaType<typeof auditLogSchema>;
 export const AuditLog = model('AuditLog', auditLogSchema);

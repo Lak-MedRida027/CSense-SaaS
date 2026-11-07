@@ -4,8 +4,8 @@ Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs
 
 **Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
 routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
-`GET /config/features`. These eight are the whole route inventory (snapshot-tested in
-`server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+`GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only). These 23 are
+the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
@@ -62,7 +62,15 @@ enumeration. Stack traces and internal messages are never returned.
 | `INVALID_REFRESH_TOKEN` | 401 | refresh token unknown, expired, revoked, reused, or its user is deactivated |
 | `FORBIDDEN` | 403 | authenticated but wrong role |
 | `NOT_FOUND` | 404 | route or resource does not exist (or is not in the registry) |
-| `CONFLICT` | 409 | unique constraint, e.g. email already in use (admin routes only) |
+| `MODULE_LOCKED` | 403 | module (or its quiz/exercises) is beyond the employee's frontier |
+| `FINAL_TEST_LOCKED` | 403 | final test started or submitted before every module is passed |
+| `CONTENT_INCOMPLETE` | 409 | quiz session before content completion; content complete before all exercises are answered |
+| `ALREADY_PASSED` | 409 | new session for an assessment already passed |
+| `SESSION_CLOSED` | 409 | submit or abandon on a session already submitted, abandoned or expired (replay, race loser) |
+| `SESSION_EXPIRED` | 409 | submission after the session time limit; an `expired` attempt is recorded |
+| `RATE_LIMITED` (session routes) | 429 | more than `SESSION_START_RATE_MAX` quiz or final-test session starts per employee per window; `Retry-After` set |
+| `ASSESSMENT_COOLDOWN` | 409 | `ASSESSMENT_COOLDOWN_AFTER_FAILS` consecutive failed attempts at this quiz or final test; sent with `Retry-After` (seconds) and `details: { retryAt }` (ISO time). A pass resets the streak |
+| `CONFLICT` | 409 | unique constraint (email in use) or a concurrent quiz-session start that lost the race |
 | `PAYLOAD_TOO_LARGE` | 413 | body over `JSON_BODY_LIMIT` |
 | `RATE_LIMITED` | 429 | rate limit hit; `Retry-After` and `RateLimit` headers set |
 | `INTERNAL_ERROR` | 500 | anything else |
@@ -91,32 +99,44 @@ enumeration. Stack traces and internal messages are never returned.
 | POST | `/gate/attempts` | employee (pre-auth flow per U15) | 5 |
 | POST | `/admin/users/:userId/restore-access` | admin | 5/7 |
 
-### View Learning Content / Complete Learning Module (→ Award Badge)
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| GET | `/modules` | employee | 3 |
-| GET | `/modules/:moduleId` (403/423 if locked) | employee | 3 |
-| POST | `/modules/:moduleId/start` | employee | 3 |
+### Learning engine (Phase 3; ADR 0006, 0007, 0008)
+All routes are role `employee` (an administrator token gets 403). Identity always comes from the token;
+no route takes a user id. Unknown or unpublished modules are 404. Locked resources are 403 with a
+specific code. Responses are strict, whitelisted DTOs (`shared/src/schemas/learningResponses.ts`).
+| Method | Route | Body | Success | Errors |
+|---|---|---|---|---|
+| GET | `/modules` | none | 200 `LearningOverviewDTO` (derived status, final test status) | |
+| GET | `/modules/:moduleId` | none | 200 `ModuleDetailDTO` (content, exercises without keys, progress, quiz overview) | 404, 403 `MODULE_LOCKED` |
+| POST | `/modules/:moduleId/start` | none | 200 `ModuleProgressDTO` (idempotent) | 404, 403 |
+| POST | `/modules/:moduleId/exercises/:exerciseId/answers` | `{selectedIndex}` | 200 `ExerciseFeedbackDTO` (key and explanation; first answer recorded) | 400, 404, 403 |
+| POST | `/modules/:moduleId/content/complete` | none | 200 `ModuleProgressDTO` (idempotent) | 404, 403, 409 `CONTENT_INCOMPLETE` |
+| GET | `/modules/:moduleId/quiz` | none | 200 `QuizOverviewDTO` (never questions) | 404, 403 |
+| POST | `/modules/:moduleId/quiz/sessions` | none | 201 `AssessmentSessionDTO` (a random subset of the question pool, preferring questions not seen before; no keys) | 404, 403, 409 `CONTENT_INCOMPLETE` / `ALREADY_PASSED` / `ASSESSMENT_COOLDOWN` / `CONFLICT`, 429 |
+| POST | `/modules/:moduleId/quiz/sessions/:sessionId/abandon` | none | 201 `AttemptResultDTO` (`endReason` abandoned or expired) | 404, 403, 409 `SESSION_CLOSED` |
+| POST | `/modules/:moduleId/quiz/attempts` | `{sessionId, answers:[{questionId, selectedIndex or null}]}` | 201 `AttemptResultDTO` (graded server-side) | 400, 404, 403, 409 `SESSION_CLOSED` / `SESSION_EXPIRED` / `ASSESSMENT_COOLDOWN` |
+| GET | `/final-test` | none | 200 `FinalTestOverviewDTO` (also while locked; no questions) | 404 if none exists |
+| POST | `/final-test/sessions` | none | 201 `AssessmentSessionDTO` (15 questions drawn from the pool) | 404, 403 `FINAL_TEST_LOCKED`, 409 `ALREADY_PASSED` / `ASSESSMENT_COOLDOWN`, 429 |
+| POST | `/final-test/sessions/:sessionId/abandon` | none | 201 `AttemptResultDTO` | 404, 409 |
+| POST | `/final-test/attempts` | as quiz attempts | 201 `AttemptResultDTO` | 400, 404, 403, 409 |
+| GET | `/me/attempts` | query `kind, moduleId, limit (1-100, default 20), before` | 200 `{items: AttemptSummaryDTO[], nextCursor}` | 400 |
+| GET | `/me/attempts/:attemptId` | none | 200 `AttemptDetailDTO` (review per reveal policy) | 404 (also another user's) |
 
-Completion and badge award are server-side effects of a passing quiz attempt, never a client call.
-
-### Take Module Quiz (→ Update Risk Profile)
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| GET | `/modules/:moduleId/quiz` (never includes answer keys) | employee | 3 |
-| POST | `/modules/:moduleId/quiz/attempts` (graded server-side) | employee | 3 |
-| GET | `/me/attempts`, `/me/attempts/:attemptId` | self | 3 |
-
-### Take Final Assessment
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| GET | `/final-test` (locked until all modules passed) | employee | 3 |
-| POST | `/final-test/attempts` | employee | 3 |
+Notes:
+- Completion and badge award are server-side effects of a passing attempt, never a client call. There is no route to set progress, score or a pass flag; a body carrying `score`, `passed` or `correct` is a 400.
+- The unlock rule is a strict prefix over published modules in `order`; status is derived, never stored (ADR 0006).
+- Leaving a quiz (abandon, starting anew, or expiry) counts as an attempt (score 0). Retries are unlimited until passed. Starting again within `ASSESSMENT_START_REUSE_SECONDS` (default 5) returns the open session instead of replacing it, and session starts are limited per employee (429 `RATE_LIMITED`; every request counts, nothing is refunded). A submission is also refused with 409 `ASSESSMENT_COOLDOWN` while a cooldown is running; abandoning stays allowed.
+- A saved attempt is never reported as an error: if a follow-up write fails it is retried, logged, and repaired from the attempt history on the next read. A hook that exceeds `LEARNING_HOOK_TIMEOUT_MS` is dropped and the response still returns 201.
+- Review: a submitted attempt shows right/wrong and the explanation; the correct option only once the assessment is passed. Abandoned and expired attempts have an empty review.
+- `QuizOverviewDTO` and `FinalTestOverviewDTO` carry `cooldownUntil` (ISO time or null) and `questionCount` is the number a session serves, not the size of the pool; `blockedReason` can be `cooldown`.
+- Pass threshold is `Quiz.passingScore` per module (default 70); score is `floor(100*correct/total)`.
+- Answer-set problems (unserved or duplicate question, option out of range) are `VALIDATION_ERROR` 400 with paths like `answers.2.questionId`; the session stays open.
+- `/me/dashboard`, `/me/progress` (Phase 6) and `/me/badges` (Phase 4) are not implemented; `GET /modules` carries the progress overview now.
 
 ### View Progress Dashboard
 | Method | Route | Auth | Phase |
 |---|---|---|---|
-| GET | `/me/dashboard`, `/me/progress`, `/me/badges` | self | 3-6 |
+| GET | `/me/dashboard`, `/me/progress` | self | 6 |
+| GET | `/me/badges` | self | 4 |
 | PATCH | `/me/onboarding` (FR4; no use case in the UML) | self | 6 |
 
 ### Respond to Phishing Simulation (flag `FEATURE_PHISHING`)
@@ -149,7 +169,7 @@ The first administrator is created by the `bootstrap:admin` CLI (decision U20), 
 | GET, PATCH, DELETE | `/admin/modules/:moduleId` | admin | 7 |
 | POST | `/admin/modules/:moduleId/publish`, `/unpublish` | admin | 7 |
 | PUT | `/admin/modules/order` | admin | 7 |
-| GET, PUT | `/admin/modules/:moduleId/quiz` | admin | 3/7 |
+| GET, PUT | `/admin/modules/:moduleId/quiz` | admin | 7 |
 | GET, POST, PATCH | `/admin/badges[/:badgeId]` | admin | 4/7 |
 
 ### Manage Final Assessment

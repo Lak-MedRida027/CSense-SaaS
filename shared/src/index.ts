@@ -7,10 +7,16 @@ export * from './constants/enums.js';
 export * from './constants/auth.js';
 export * from './constants/audit.js';
 export * from './constants/errors.js';
+export * from './constants/learning.js';
 
 export * from './schemas/common.js';
 export * from './schemas/auth.js';
 export * from './schemas/users.js';
+export * from './schemas/learning.js';
+export * from './schemas/learningResponses.js';
+export * from './schemas/learningAuthoring.js';
+
+export * from './learning/index.js';
 
 export type * from './types/user.js';
 export type * from './types/module.js';
@@ -22,3 +28,4 @@ export type * from './types/phishing.js';
 export type * from './types/api.js';
 export type * from './types/auth.js';
 export type * from './types/audit.js';
+export type * from './types/learning.js';

@@ -18,6 +18,8 @@ const assessmentSchema = new Schema(
         message: 'an assessment needs at least one question',
       },
     },
+    // How many questions of the pool one session serves (P3-M1). Null serves the whole pool.
+    questionsPerSession: { type: Number, min: 1, default: null, validate: intValidator },
     // Integer percent 0-100, configurable per assessment (CLAUDE.md open question; default 70).
     passingScore: {
       type: Number,
@@ -28,6 +30,20 @@ const assessmentSchema = new Schema(
     },
   },
   { ...baseSchemaOptions, discriminatorKey: 'kind', collection: 'assessments' },
+);
+
+// A session cannot serve more questions than the pool holds.
+assessmentSchema.pre(
+  'validate',
+  function (this: {
+    questionsPerSession?: number | null;
+    questions: unknown[];
+    invalidate(p: string, m: string): void;
+  }) {
+    if (this.questionsPerSession != null && this.questionsPerSession > this.questions.length) {
+      this.invalidate('questionsPerSession', 'cannot exceed the number of questions in the pool');
+    }
+  },
 );
 
 assessmentSchema.index({ kind: 1 });

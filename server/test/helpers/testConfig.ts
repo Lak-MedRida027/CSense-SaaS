@@ -7,13 +7,14 @@ export const randomSecret = (): string => randomBytes(48).toString('base64url');
 
 export const silentLogger = pino({ level: 'silent' });
 
-type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit'>> & {
+type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit' | 'learning'>> & {
   rateLimit?: Partial<AppConfig['rateLimit']>;
+  learning?: Partial<AppConfig['learning']>;
 };
 
 /** AppConfig with random secrets and limits high enough not to interfere, unless overridden. */
 export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
-  const { rateLimit, ...rest } = overrides;
+  const { rateLimit, learning, ...rest } = overrides;
   return {
     jsonBodyLimit: '100kb',
     jwtAccessSecret: randomSecret(),
@@ -24,6 +25,15 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
     trustProxyHops: 0,
     failedLoginMinMs: 0, // only the timing tests enable a real floor
     features: { phishing: false, continuousReview: false },
+    learning: {
+      sessionTtlSeconds: 3600,
+      hookTimeoutMs: 2000,
+      startReuseSeconds: 0,
+      // High so unrelated tests never hit it; the cooldown tests lower it explicitly.
+      cooldownAfterFails: 1000,
+      cooldownMinutes: 15,
+      ...learning,
+    },
     ...rest,
     rateLimit: {
       windowMs: 900_000,
@@ -33,6 +43,8 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
       loginMaxPerIp: 100_000,
       loginTargetedThreshold: 100_000,
       refreshMaxPerIp: 100_000,
+      sessionStartMax: 20,
+      sessionStartWindowMs: 600_000,
       ...rateLimit,
     },
   };

@@ -1,4 +1,5 @@
 import type { AssessmentKind } from '../constants/assessment.js';
+import type { AttemptEndReason } from '../constants/learning.js';
 
 /** Question as shown to an employee: no answer key. */
 export interface QuestionDTO {
@@ -35,7 +36,8 @@ export interface FinalTestDTO<Q extends QuestionDTO = QuestionDTO> extends Asses
 /** One answer inside a QuizAttempt (U3). */
 export interface AnswerDTO {
   questionId: string;
-  selectedIndex: number;
+  /** null when the question was left unanswered. */
+  selectedIndex: number | null;
   correct: boolean;
 }
 
@@ -48,4 +50,12 @@ export interface QuizAttemptDTO {
   score: number;
   passed: boolean;
   attemptedAt: string;
+  sessionId: string;
+  moduleId: string | null;
+  attemptNumber: number;
+  endReason: AttemptEndReason;
+  correctCount: number;
+  totalCount: number;
+  /** Threshold in force when the session started. */
+  passingScore: number;
 }

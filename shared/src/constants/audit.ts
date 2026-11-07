@@ -9,6 +9,8 @@ export const AUDIT_ACTIONS = [
   'auth.logout',
   'user.created',
   'admin.bootstrapped',
+  'learning.seed.reset',
+  'learning.assessment.cooldown',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 

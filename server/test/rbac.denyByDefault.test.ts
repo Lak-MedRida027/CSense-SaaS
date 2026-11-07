@@ -49,6 +49,22 @@ describe('route table', () => {
         'GET /auth/me authenticated',
         'GET /config/features authenticated',
         'POST /admin/users role:administrator',
+        // Phase 3: the learning engine. Every route is employee-only.
+        'GET /modules role:employee',
+        'GET /modules/:moduleId role:employee',
+        'POST /modules/:moduleId/start role:employee',
+        'POST /modules/:moduleId/exercises/:exerciseId/answers role:employee',
+        'POST /modules/:moduleId/content/complete role:employee',
+        'GET /modules/:moduleId/quiz role:employee',
+        'POST /modules/:moduleId/quiz/sessions role:employee',
+        'POST /modules/:moduleId/quiz/sessions/:sessionId/abandon role:employee',
+        'POST /modules/:moduleId/quiz/attempts role:employee',
+        'GET /final-test role:employee',
+        'POST /final-test/sessions role:employee',
+        'POST /final-test/sessions/:sessionId/abandon role:employee',
+        'POST /final-test/attempts role:employee',
+        'GET /me/attempts role:employee',
+        'GET /me/attempts/:attemptId role:employee',
       ].sort(),
     );
   });
@@ -68,9 +84,35 @@ describe('route table', () => {
   it('B3: every administrator-only route returns 403 for an employee token', async () => {
     const employee = await createEmployee(creds);
     const { accessToken } = await loginOk(t.app, employee);
-    const adminRoutes = routes.filter((r) => r.access.kind === 'role');
+    // Only routes that are closed to employees: employee-only routes are checked by B7.
+    const adminRoutes = routes.filter(
+      (r) =>
+        r.access.kind === 'role' &&
+        r.access.roles.includes('administrator') &&
+        !r.access.roles.includes('employee'),
+    );
     expect(adminRoutes.length).toBeGreaterThan(0);
     for (const r of adminRoutes) {
+      const res = await request(t.app)
+        [r.method](`/api/v1${concrete(r.path)}`)
+        .set(...bearer(accessToken))
+        .send({});
+      expect(res.status, `${r.method} ${r.path}`).toBe(403);
+      expect(res.body.error.code).toBe('FORBIDDEN');
+    }
+  });
+
+  it('B7: every employee-only route returns 403 for an administrator token', async () => {
+    const admin = await createAdmin(creds);
+    const { accessToken } = await loginOk(t.app, admin);
+    const employeeRoutes = routes.filter(
+      (r) =>
+        r.access.kind === 'role' &&
+        r.access.roles.includes('employee') &&
+        !r.access.roles.includes('administrator'),
+    );
+    expect(employeeRoutes.length).toBeGreaterThanOrEqual(15);
+    for (const r of employeeRoutes) {
       const res = await request(t.app)
         [r.method](`/api/v1${concrete(r.path)}`)
         .set(...bearer(accessToken))

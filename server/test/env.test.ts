@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { describe, expect, it } from 'vitest';
+import { toAppConfig } from '../src/config/appConfig.js';
 import { loadEnv } from '../src/config/env.js';
 import { randomSecret } from './helpers/testConfig.js';
 
@@ -29,6 +30,7 @@ describe('loadEnv', () => {
       FEATURE_PHISHING: false,
       FEATURE_CONTINUOUS_REVIEW: false,
       JWT_ACCESS_TTL: '15m',
+      ASSESSMENT_SESSION_TTL: '60m',
       JWT_REFRESH_TTL: '7d',
       BCRYPT_COST: 12,
       RATE_LIMIT_WINDOW_MS: 900_000,
@@ -157,6 +159,24 @@ describe('loadEnv', () => {
       expect(() => loadEnv({ ...base(), JWT_REFRESH_TTL: bad })).toThrow(/JWT_REFRESH_TTL/);
     }
     expect(loadEnv({ ...base(), JWT_ACCESS_TTL: '30m', JWT_REFRESH_TTL: '14d' })).toBeDefined();
+  });
+
+  it('E9: ASSESSMENT_SESSION_TTL accepts 5m..4h and rejects anything else', () => {
+    for (const ok of ['5m', '60m', '90m', '4h', '240m', '14400s']) {
+      expect(loadEnv({ ...base(), ASSESSMENT_SESSION_TTL: ok }).ASSESSMENT_SESSION_TTL).toBe(ok);
+    }
+    for (const bad of ['4m', '299s', '5h', '1d', '0m', '60', '60x', '-5m', '', 'abc']) {
+      expect(() => loadEnv({ ...base(), ASSESSMENT_SESSION_TTL: bad }), bad).toThrow(
+        /ASSESSMENT_SESSION_TTL/,
+      );
+    }
+  });
+
+  it('E9b: toAppConfig turns the session TTL into seconds', () => {
+    expect(
+      toAppConfig(loadEnv({ ...base(), ASSESSMENT_SESSION_TTL: '90m' })).learning.sessionTtlSeconds,
+    ).toBe(5400);
+    expect(toAppConfig(loadEnv(base())).learning.sessionTtlSeconds).toBe(3600);
   });
 
   it('E7: non-positive limits and TRUST_PROXY_HOPS above 5 throw', () => {
