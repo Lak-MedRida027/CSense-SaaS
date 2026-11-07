@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   checkAuthoringSet,
   checkExplanationEchoes,
-  checkLongestOption,
+  checkLengthRanks,
   checkNearDuplicates,
   checkPoolSizes,
   contentTokens,
@@ -28,6 +28,12 @@ describe('contentTokens', () => {
       'team',
     ]);
   });
+
+  it('makes sources/source, routes/route and reporting/report collide', () => {
+    expect(contentTokens('sources')).toEqual(contentTokens('source'));
+    expect(contentTokens('routes')).toEqual(contentTokens('route'));
+    expect(contentTokens('reporting')).toEqual(contentTokens('report'));
+  });
 });
 
 describe('explanation echoes (rule 1)', () => {
@@ -35,69 +41,147 @@ describe('explanation echoes (rule 1)', () => {
     expect(checkExplanationEchoes([item()])).toEqual([]);
   });
 
-  it('flags an explanation repeating two distinctive words of the correct option', () => {
-    const flagged = checkExplanationEchoes([
+  it('flags a single distinctive word shared with the correct option', () => {
+    const found = checkExplanationEchoes([
+      item({ explanation: 'A passphrase is hard to guess, whatever the service.' }),
+    ]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ rule: 'explanation_echoes_answer', where: 'q.0' });
+    expect(found[0]?.detail).toMatch(/passphras/);
+  });
+
+  it('flags an explanation repeating several distinctive words', () => {
+    const found = checkExplanationEchoes([
       item({ explanation: 'A unique passphrase is long, so guessing it takes far longer.' }),
     ]);
-    expect(flagged).toHaveLength(1);
-    expect(flagged[0]).toMatchObject({ rule: 'explanation_echoes_answer', where: 'q.0' });
-    expect(flagged[0]?.detail).toMatch(/unique/);
+    expect(found).toHaveLength(1);
+    expect(found[0]?.detail).toMatch(/unique/);
   });
 
-  it('ignores words that the distractors share with the correct option', () => {
-    const shared = item({
-      options: ['Reuse the same password', 'Share the password', 'Choose a long password', 'Skip'],
-      correctAnswer: 2,
-      explanation: 'A password should be long; every password counts.',
-    });
-    expect(checkExplanationEchoes([shared])).toEqual([]);
-  });
-
-  it('matches plural and singular forms', () => {
-    const flagged = checkExplanationEchoes([
+  it('matches sources with source and routes with route', () => {
+    const sources = checkExplanationEchoes([
       item({
-        options: ['Ignore it', 'Forward it', 'Reporting suspicious messages', 'Delete it'],
+        options: [
+          'Any site',
+          'A forum post',
+          'The sources your organisation maintains',
+          'An advert',
+        ],
         correctAnswer: 2,
-        explanation: 'A suspicious message should be handled by those who report them.',
+        explanation: 'A managed source is checked and kept current.',
       }),
     ]);
-    expect(flagged).toHaveLength(1);
+    expect(sources).toHaveLength(1);
+    const routes = checkExplanationEchoes([
+      item({
+        options: ['Reply', 'Ignore', 'Check through another route', 'Click'],
+        correctAnswer: 2,
+        explanation: 'A different route cannot be controlled by the mailbox owner.',
+      }),
+    ]);
+    expect(routes).toHaveLength(1);
+  });
+
+  it('ignores stopwords and words that also appear in a distractor', () => {
+    const ok = checkExplanationEchoes([
+      item({
+        options: [
+          'Share the secret',
+          'Keep the secret private',
+          'Post the secret',
+          'Hide the secret',
+        ],
+        correctAnswer: 1,
+        explanation: 'Whatever happens, the secret stays where it belongs.',
+      }),
+    ]);
+    expect(ok).toEqual([]);
+    const shared = checkExplanationEchoes([
+      item({
+        options: [
+          'Reuse the same password',
+          'Share the password',
+          'Choose a long password',
+          'Skip',
+        ],
+        correctAnswer: 2,
+        explanation: 'A password should be long; every password counts.',
+      }),
+    ]);
+    // "long" is distinctive and appears in the explanation; "password" is in every option.
+    expect(shared.map((f) => f.detail)).toEqual([
+      'explanation repeats long from the correct option',
+    ]);
   });
 });
 
-describe('longest correct option (rule 2)', () => {
-  const longest = (n: number): AuthoringItem[] =>
-    Array.from({ length: n }, (_, i) =>
-      item({
-        where: `q.${String(i)}`,
-        options: ['short a', 'short b', 'a deliberately much longer correct option', 'short d'],
-        correctAnswer: 2,
-      }),
-    );
+describe('length ranks (rule 2)', () => {
+  const TEXTS = [
+    'alpha beta gamma delta epsilon',
+    'alpha beta gamma delta',
+    'alpha beta gamma',
+    'alpha beta',
+  ];
+  /** Four options of strictly decreasing length; the correct one sits at the given length rank. */
+  const ranked = (i: number, rank: number): AuthoringItem => {
+    const options = [...TEXTS];
+    [options[0], options[rank]] = [options[rank] as string, options[0] as string];
+    return item({ where: `q.${String(i)}`, options, correctAnswer: 0 });
+  };
+  const withRank = (n: number, rank: number): AuthoringItem[] =>
+    Array.from({ length: n }, (_, i) => ranked(i, rank));
 
   it('flags an assessment where the correct option is always the longest', () => {
-    const f = checkLongestOption(longest(5));
-    expect(f.map((x) => x.rule)).toContain('longest_option_correct');
-    expect(f[0]?.where).toBe('g');
+    const found = checkLengthRanks(withRank(8, 0));
+    expect(found.every((f) => f.rule === 'length_rank_biased')).toBe(true);
+    expect(found.some((f) => f.detail.includes('#1 by characters'))).toBe(true);
+    expect(found.some((f) => f.detail.includes('#1 by words'))).toBe(true);
   });
 
-  it('passes when the key is spread over the lengths', () => {
-    const spread = longest(5).map((x, i) =>
-      i < 5
-        ? {
-            ...x,
-            options: x.options.map((o, k) =>
-              k === (i + 1) % 4 ? 'a deliberately much longer option' : o,
-            ),
-            correctAnswer: i % 4,
-          }
-        : x,
+  it('flags every other rank too, so "pick the second longest" does not pay either', () => {
+    for (const rank of [1, 2, 3]) {
+      const found = checkLengthRanks(withRank(8, rank));
+      expect(
+        found.some((f) => f.detail.includes(`#${String(rank + 1)} by characters`)),
+        String(rank),
+      ).toBe(true);
+    }
+  });
+
+  it('passes when the key is spread evenly over the ranks', () => {
+    const even = Array.from({ length: 12 }, (_, i) => ranked(i, i % 4));
+    expect(checkLengthRanks(even)).toEqual([]);
+  });
+
+  it('judges words as well as characters', () => {
+    // Every option is 15 characters long, but the correct one always has the most words.
+    const items = Array.from({ length: 8 }, (_, i) =>
+      item({
+        where: `w.${String(i)}`,
+        options: ['a b c d e f g h i', 'abcdefghi jklmn', 'abcdefghijklmno', 'abcdefghijklmnp'],
+        correctAnswer: 0,
+      }),
     );
-    expect(checkLongestOption(spread)).toEqual([]);
+    expect(checkLengthRanks(items).some((f) => f.detail.includes('by words'))).toBe(true);
   });
 
-  it('ignores tiny groups', () => {
-    expect(checkLongestOption(longest(2))).toEqual([]);
+  it('shares credit between tied options, and ignores groups under five items', () => {
+    const tied = Array.from({ length: 8 }, (_, i) =>
+      item({
+        where: `t.${String(i)}`,
+        options: ['aaaa', 'bbbb', 'cccc', 'dddd'],
+        correctAnswer: 0,
+      }),
+    );
+    expect(checkLengthRanks(tied)).toEqual([]);
+    expect(checkLengthRanks(withRank(4, 0))).toEqual([]);
+  });
+
+  it('judges each group and the whole set', () => {
+    const a = withRank(6, 0).map((x) => ({ ...x, group: 'a' }));
+    const b = withRank(6, 3).map((x, i) => ({ ...x, where: `b.${String(i)}`, group: 'b' }));
+    const found = checkLengthRanks([...a, ...b]);
+    expect(found.map((f) => f.where)).toEqual(expect.arrayContaining(['a', 'b']));
   });
 });
 
@@ -113,9 +197,9 @@ describe('near duplicates (rule 3)', () => {
       group: 'final',
       text: 'Which password is the strongest choice for work today?',
     });
-    const f = checkNearDuplicates([a, b]);
-    expect(f).toHaveLength(1);
-    expect(f[0]).toMatchObject({ rule: 'near_duplicate', where: 'final.3' });
+    const found = checkNearDuplicates([a, b]);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatchObject({ rule: 'near_duplicate', where: 'final.3' });
   });
 
   it('passes unrelated questions', () => {
@@ -162,7 +246,7 @@ describe('near duplicates (rule 3)', () => {
 });
 
 describe('checkAuthoringSet', () => {
-  it('combines the three rules', () => {
+  it('combines the item rules', () => {
     expect(checkAuthoringSet([item()])).toEqual([]);
     const bad = item({ explanation: 'A unique long passphrase wins.' });
     expect(checkAuthoringSet([bad]).map((f) => f.rule)).toEqual(['explanation_echoes_answer']);
@@ -170,18 +254,20 @@ describe('checkAuthoringSet', () => {
 });
 
 describe('pool size (rule 4)', () => {
-  it('flags a pool smaller than twice the questions served per session', () => {
+  it('flags a pool smaller than four times the questions served per session', () => {
     const found = checkPoolSizes([
-      { name: 'quiz1', poolSize: 9, questionsPerSession: 5 },
-      { name: 'quiz2', poolSize: 10, questionsPerSession: 5 },
-      { name: 'final', poolSize: 29, questionsPerSession: 15 },
-      { name: 'final2', poolSize: 30, questionsPerSession: 15 },
+      { name: 'quiz1', poolSize: 19, questionsPerSession: 5 },
+      { name: 'quiz2', poolSize: 20, questionsPerSession: 5 },
+      { name: 'quiz3', poolSize: 10, questionsPerSession: 5 },
+      { name: 'final', poolSize: 59, questionsPerSession: 15 },
+      { name: 'final2', poolSize: 60, questionsPerSession: 15 },
     ]);
     expect(found.map((f) => [f.rule, f.where])).toEqual([
       ['pool_too_small', 'quiz1'],
+      ['pool_too_small', 'quiz3'],
       ['pool_too_small', 'final'],
     ]);
-    expect(found[0]?.detail).toMatch(/pool of 9/);
+    expect(found[0]?.detail).toMatch(/pool of 19/);
   });
 
   it('accepts a custom factor', () => {

@@ -36,7 +36,7 @@ const seed = (extra: { reset?: boolean } = {}) =>
   });
 
 describe('learning seed', () => {
-  it('SD1: an empty database gets 7 published modules, 7 quizzes of 5 and a final test of 15', async () => {
+  it('SD1: an empty database gets 7 published modules, 7 quiz pools of 20 (5 served) and a final-test pool of 60+ (15 served)', async () => {
     const result = await seed();
     expect(result).toEqual({
       created: { modules: 7, quizzes: 7, finalTest: 1 },
@@ -73,7 +73,7 @@ describe('learning seed', () => {
     const finalTest = await FinalTest.findOne()
       .select('+questions.correctAnswer +questions.explanation')
       .lean();
-    expect(finalTest?.questions).toHaveLength(FINAL_TEST_TARGET_QUESTIONS);
+    expect(finalTest?.questions.length).toBeGreaterThanOrEqual(FINAL_TEST_TARGET_QUESTIONS);
     expect(finalTest?.passingScore).toBe(70);
     expect(finalTest?.questionsPerSession).toBe(15);
 
@@ -225,11 +225,11 @@ describe('learning seed', () => {
     const { modules, quizzes, finalTest } = validateSeedContent();
     expect(modules).toHaveLength(7);
     expect(quizzes.size).toBe(7);
-    expect(finalTest.questions).toHaveLength(30);
+    expect(finalTest.questions.length).toBeGreaterThanOrEqual(60);
     expect(finalTest.questionsPerSession).toBe(15);
 
     const everyQuestion = [...quizzes.values(), finalTest].flatMap((a) => a.questions);
-    expect(everyQuestion).toHaveLength(100);
+    expect(everyQuestion).toHaveLength(7 * 20 + finalTest.questions.length);
     for (const item of [...everyQuestion, ...modules.flatMap((m) => m.exercises)]) {
       expect(item.options.length).toBeGreaterThanOrEqual(2);
       expect(item.explanation.length).toBeLessThanOrEqual(300);

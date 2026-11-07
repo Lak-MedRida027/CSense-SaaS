@@ -10,8 +10,12 @@ export const MAX_KEY_TAKEAWAYS = 10;
 /** Questions served per session (P3-M1): a quiz serves 5, the final test 15. */
 export const QUIZ_QUESTIONS_PER_SESSION = 5;
 export const FINAL_TEST_QUESTIONS_PER_SESSION = 15;
-/** A published pool holds at least this many times the questions served per session. */
-export const MIN_POOL_FACTOR = 2;
+/**
+ * A published pool holds at least this many times the questions served per session. With per-question
+ * feedback after a failed attempt, a small pool lets a client replay a session's questions and
+ * eliminate options; four times the draw keeps replays rare and, with the cooldown, expensive.
+ */
+export const MIN_POOL_FACTOR = 4;
 export const MODULE_QUIZ_TARGET_QUESTIONS = QUIZ_QUESTIONS_PER_SESSION * MIN_POOL_FACTOR;
 export const FINAL_TEST_TARGET_QUESTIONS = FINAL_TEST_QUESTIONS_PER_SESSION * MIN_POOL_FACTOR;
 

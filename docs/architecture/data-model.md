@@ -84,7 +84,7 @@ Indexes: `{userId:1,moduleId:1}` unique · `{moduleId:1,status:1}`
 | title | String | required |
 | questions | Question[] (embedded) | at least 1 (`1..*`) |
 | passingScore | int percent 0-100 | default 70 (configurable per assessment) |
-| questionsPerSession | int >= 1 or null | how many questions of the pool a session serves (null serves all); may not exceed the pool. Published content keeps a pool of at least twice this (authoring schema: quiz 5 from 10+, final test 15 from 30+) |
+| questionsPerSession | int >= 1 or null | how many questions of the pool a session serves (null serves all); may not exceed the pool. Published content keeps a pool of at least four times this (authoring schema: quiz 5 from 20+, final test 15 from 60+) |
 | moduleId *(Quiz)* | ObjectId → Module | required |
 
 Embedded **Question** (`_id: false`): `questionId` (auto ObjectId), `text` (required),
@@ -118,7 +118,7 @@ Also unique: `{userId:1,refId:1,attemptNumber:1}`.
 
 Append-only (Phase 3): the shared `appendOnly` plugin makes every update, replace and delete path, and any aggregation containing `$merge` or `$out`, throw `QuizAttemptImmutableError`; only `create` and `insertMany` write. The same aggregation guard protects `auditlogs`.
 
-Startup builds and verifies the unique indexes the learning engine relies on (`server/src/db/learningIndexes.ts`); `/health/ready` is `unavailable` while one is missing.
+Startup builds and verifies (key, `unique`, partial filter, not just the name) the unique indexes the learning engine relies on (`server/src/db/learningIndexes.ts`); `/health/ready` is `unavailable` while one is missing.
 
 ### `assessmentsessions` (AssessmentSession, Phase 3, not in the diagram; ADR 0007)
 | Field | Type | Rules |
@@ -129,7 +129,7 @@ Startup builds and verifies the unique indexes the learning engine relies on (`s
 | moduleId | ObjectId or null | required for Quiz |
 | status | `open` \| `submitted` \| `abandoned` \| `expired` | default `open` |
 | questions | `{questionId, optionCount, correctAnswer}[]` | served (shuffled) order; `correctAnswer` is a key snapshot, `select: false`; `toJSON` never emits `questions` |
-| attemptNumber | int or null | allocated atomically at start from `attemptcounters` |
+| attemptNumber | int or null | reserved from `attemptcounters` after the insert succeeds, in the conditional update that also checks the cooldown |
 | passingScore | int | snapshot |
 | expiresAt | Date | start + `ASSESSMENT_SESSION_TTL` |
 | closedAt | Date or null | |

@@ -44,8 +44,8 @@ changing anything. It never generates or prints a password, and it writes a crit
 `admin.bootstrapped` audit entry. Further accounts are created with `POST /api/v1/admin/users`.
 
 ## Seed the learning content (development and tests only)
-Seven placeholder modules, seven quiz pools of ten questions (a session serves five) and a final-test
-pool of thirty (a session serves fifteen), with no client branding. There is deliberately no production build of this command. It fails closed:
+Seven placeholder modules, seven quiz pools of twenty questions (a session serves five) and a final-test
+pool of sixty (a session serves fifteen), with no client branding. There is deliberately no production build of this command. It fails closed:
 - `NODE_ENV` must be set to `development` or `test` (unset or anything else is refused);
 - a non-local MongoDB host is refused unless `SEED_ALLOW_REMOTE=true`;
 - `--reset` (wipes learning content, progress and attempts) also needs `--confirm=<database name>`

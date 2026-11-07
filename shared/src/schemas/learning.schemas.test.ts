@@ -211,21 +211,22 @@ describe('assessment authoring pool invariant (P3-M1)', () => {
     questions: Array.from({ length: pool }, (_, i) => question(i)),
   });
 
-  it('requires a pool of at least twice the questions served per session', () => {
-    expect(assessmentAuthoringSchema.safeParse(assessment(10, 5)).success).toBe(true);
-    expect(assessmentAuthoringSchema.safeParse(assessment(30, 15)).success).toBe(true);
-    const small = assessmentAuthoringSchema.safeParse(assessment(9, 5));
+  it('requires a pool of at least four times the questions served per session', () => {
+    expect(assessmentAuthoringSchema.safeParse(assessment(20, 5)).success).toBe(true);
+    expect(assessmentAuthoringSchema.safeParse(assessment(60, 15)).success).toBe(true);
+    const small = assessmentAuthoringSchema.safeParse(assessment(19, 5));
     expect(small.success).toBe(false);
     expect(small.error?.issues[0]?.path).toEqual(['questions']);
-    expect(assessmentAuthoringSchema.safeParse(assessment(29, 15)).success).toBe(false);
+    expect(assessmentAuthoringSchema.safeParse(assessment(59, 15)).success).toBe(false);
+    expect(assessmentAuthoringSchema.safeParse(assessment(10, 5)).success).toBe(false); // the old 2x rule
   });
 
   it('needs questionsPerSession and rejects zero or fractions', () => {
-    const { questionsPerSession: _omit, ...without } = assessment(10, 5);
+    const { questionsPerSession: _omit, ...without } = assessment(20, 5);
     expect(assessmentAuthoringSchema.safeParse(without).success).toBe(false);
-    expect(assessmentAuthoringSchema.safeParse(assessment(10, 0)).success).toBe(false);
+    expect(assessmentAuthoringSchema.safeParse(assessment(20, 0)).success).toBe(false);
     expect(
-      assessmentAuthoringSchema.safeParse({ ...assessment(10, 5), questionsPerSession: 2.5 })
+      assessmentAuthoringSchema.safeParse({ ...assessment(20, 5), questionsPerSession: 2.5 })
         .success,
     ).toBe(false);
   });

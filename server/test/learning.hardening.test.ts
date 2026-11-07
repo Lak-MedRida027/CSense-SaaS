@@ -231,7 +231,7 @@ describe('repair-on-read of a lost progress write (P3-L1)', () => {
 });
 
 describe('startup indexes and readiness (P3-L3)', () => {
-  it('ready while every required unique index exists; 503 when one is missing', async () => {
+  it('ready while every required unique index exists; 503 when one is missing; the check is cached', async () => {
     const t = await buildTestApp();
     expect(await missingLearningIndexes()).toEqual([]);
     expect((await request(t.app).get('/api/v1/health/ready')).status).toBe(200);
@@ -239,12 +239,16 @@ describe('startup indexes and readiness (P3-L3)', () => {
     await AssessmentSession.collection.dropIndex('one_open_session');
     try {
       expect(await missingLearningIndexes()).toEqual(['assessmentsessions.one_open_session']);
+      // A good result is trusted for 30 seconds, then the check runs again.
+      expect((await request(t.app).get('/api/v1/health/ready')).status).toBe(200);
+      t.advance(31_000);
       const down = await request(t.app).get('/api/v1/health/ready');
       expect(down.status).toBe(503);
       expect(down.body).toEqual({ status: 'unavailable' });
     } finally {
       await ensureLearningIndexes();
     }
+    // A failure is never cached: recovery shows at once.
     expect((await request(t.app).get('/api/v1/health/ready')).status).toBe(200);
   });
 

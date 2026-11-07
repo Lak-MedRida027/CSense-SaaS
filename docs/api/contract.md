@@ -113,7 +113,7 @@ specific code. Responses are strict, whitelisted DTOs (`shared/src/schemas/learn
 | GET | `/modules/:moduleId/quiz` | none | 200 `QuizOverviewDTO` (never questions) | 404, 403 |
 | POST | `/modules/:moduleId/quiz/sessions` | none | 201 `AssessmentSessionDTO` (a random subset of the question pool, preferring questions not seen before; no keys) | 404, 403, 409 `CONTENT_INCOMPLETE` / `ALREADY_PASSED` / `ASSESSMENT_COOLDOWN` / `CONFLICT`, 429 |
 | POST | `/modules/:moduleId/quiz/sessions/:sessionId/abandon` | none | 201 `AttemptResultDTO` (`endReason` abandoned or expired) | 404, 403, 409 `SESSION_CLOSED` |
-| POST | `/modules/:moduleId/quiz/attempts` | `{sessionId, answers:[{questionId, selectedIndex or null}]}` | 201 `AttemptResultDTO` (graded server-side) | 400, 404, 403, 409 `SESSION_CLOSED` / `SESSION_EXPIRED` |
+| POST | `/modules/:moduleId/quiz/attempts` | `{sessionId, answers:[{questionId, selectedIndex or null}]}` | 201 `AttemptResultDTO` (graded server-side) | 400, 404, 403, 409 `SESSION_CLOSED` / `SESSION_EXPIRED` / `ASSESSMENT_COOLDOWN` |
 | GET | `/final-test` | none | 200 `FinalTestOverviewDTO` (also while locked; no questions) | 404 if none exists |
 | POST | `/final-test/sessions` | none | 201 `AssessmentSessionDTO` (15 questions drawn from the pool) | 404, 403 `FINAL_TEST_LOCKED`, 409 `ALREADY_PASSED` / `ASSESSMENT_COOLDOWN`, 429 |
 | POST | `/final-test/sessions/:sessionId/abandon` | none | 201 `AttemptResultDTO` | 404, 409 |
@@ -124,7 +124,7 @@ specific code. Responses are strict, whitelisted DTOs (`shared/src/schemas/learn
 Notes:
 - Completion and badge award are server-side effects of a passing attempt, never a client call. There is no route to set progress, score or a pass flag; a body carrying `score`, `passed` or `correct` is a 400.
 - The unlock rule is a strict prefix over published modules in `order`; status is derived, never stored (ADR 0006).
-- Leaving a quiz (abandon, starting anew, or expiry) counts as an attempt (score 0). Retries are unlimited until passed. Starting again within `ASSESSMENT_START_REUSE_SECONDS` (default 5) returns the open session instead of replacing it, and session starts are limited per employee (429 `RATE_LIMITED`).
+- Leaving a quiz (abandon, starting anew, or expiry) counts as an attempt (score 0). Retries are unlimited until passed. Starting again within `ASSESSMENT_START_REUSE_SECONDS` (default 5) returns the open session instead of replacing it, and session starts are limited per employee (429 `RATE_LIMITED`; malformed requests are not counted). A submission is also refused with 409 `ASSESSMENT_COOLDOWN` while a cooldown is running; abandoning stays allowed.
 - A saved attempt is never reported as an error: if a follow-up write fails it is retried, logged, and repaired from the attempt history on the next read. A hook that exceeds `LEARNING_HOOK_TIMEOUT_MS` is dropped and the response still returns 201.
 - Review: a submitted attempt shows right/wrong and the explanation; the correct option only once the assessment is passed. Abandoned and expired attempts have an empty review.
 - `QuizOverviewDTO` and `FinalTestOverviewDTO` carry `cooldownUntil` (ISO time or null) and `questionCount` is the number a session serves, not the size of the pool; `blockedReason` can be `cooldown`.

@@ -8,7 +8,7 @@ import {
   type AuthoringFinding,
   type AuthoringItem,
   checkExplanationEchoes,
-  checkLongestOption,
+  checkLengthRanks,
   checkNearDuplicates,
   checkPoolSizes,
   type ModuleAuthoring,
@@ -333,7 +333,7 @@ export function seedAuthoringFindings(
   const scored = all.filter((i) => !i.group.startsWith('exercises'));
   return [
     ...checkExplanationEchoes(scored),
-    ...checkLongestOption(scored),
+    ...checkLengthRanks(scored),
     ...checkNearDuplicates(all),
     ...checkPoolSizes([
       ...[...content.quizzes].map(([order, quiz]) => ({

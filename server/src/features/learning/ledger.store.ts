@@ -7,6 +7,11 @@ import { toObjectId } from './ids.js';
  * operation, so attempt numbers and "first pass" are decided by the database, not by a
  * check-then-insert (P3-L2).
  */
+/** How long a start is told to wait while a cooldown is being written. */
+const WINDOW_RETRY_MS = 5000;
+/** A streak at the limit without a cooldown older than this is repaired by the next start. */
+const STALE_STREAK_MS = 60_000;
+
 const isDuplicateKey = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 11000;
 
@@ -30,6 +35,66 @@ export async function allocateAttemptNumber(userId: string, assessmentId: string
     ).lean(),
   );
   return doc.seq;
+}
+
+/**
+ * Reserve the next attempt number for a start, in the same conditional update that requires no
+ * running cooldown and a failure streak below the limit (P3-L10). Returns the number, or the time
+ * until which the start is refused. A streak at the limit without a cooldown is the short window in
+ * which the failing submission that reached it is about to write the cooldown; it is refused too.
+ */
+export async function reserveAttemptNumber(
+  userId: string,
+  assessmentId: string,
+  rule: { afterFails: number; minutes: number; now: Date },
+  retry = true,
+): Promise<{ attemptNumber: number } | { blockedUntil: Date }> {
+  const identity = { userId: toObjectId(userId), assessmentId: toObjectId(assessmentId) };
+  try {
+    const doc = await AttemptCounter.findOneAndUpdate(
+      {
+        ...identity,
+        consecutiveFails: trusted({ $lt: rule.afterFails }),
+        $or: [{ cooldownUntil: null }, { cooldownUntil: trusted({ $lte: rule.now }) }],
+      },
+      { $inc: { seq: 1 } },
+      { upsert: true, returnDocument: 'after' },
+    ).lean();
+    return { attemptNumber: doc.seq };
+  } catch (err) {
+    // The document exists but does not satisfy the conditions: the unique index rejected the upsert.
+    if (!isDuplicateKey(err)) throw err;
+  }
+  const current = await AttemptCounter.findOne(identity).lean();
+  if (current?.cooldownUntil && current.cooldownUntil.getTime() > rule.now.getTime()) {
+    return { blockedUntil: current.cooldownUntil };
+  }
+  if (current && current.consecutiveFails >= rule.afterFails) {
+    // Normally the failing submission that reached the limit writes the cooldown within
+    // milliseconds, so this start is only asked to come back in a moment. If the write never
+    // happened (a crash between the two updates) the ledger would block the employee forever, so a
+    // stale streak starts the cooldown here instead.
+    const stale = rule.now.getTime() - current.updatedAt.getTime() > STALE_STREAK_MS;
+    const until = stale
+      ? await startCooldownIfDue(userId, assessmentId, current.consecutiveFails, rule)
+      : null;
+    return { blockedUntil: until ?? new Date(rule.now.getTime() + WINDOW_RETRY_MS) };
+  }
+  // The state changed between the two reads; try once more.
+  if (retry) return reserveAttemptNumber(userId, assessmentId, rule, false);
+  return { blockedUntil: new Date(rule.now.getTime() + rule.minutes * 60_000) };
+}
+
+/** Give back a reserved number if no later one was drawn (keeps numbering dense in a lost race). */
+export async function releaseAttemptNumber(
+  userId: string,
+  assessmentId: string,
+  attemptNumber: number,
+): Promise<void> {
+  await AttemptCounter.updateOne(
+    { userId: toObjectId(userId), assessmentId: toObjectId(assessmentId), seq: attemptNumber },
+    { $inc: { seq: -1 } },
+  );
 }
 
 /**

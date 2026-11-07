@@ -42,6 +42,8 @@ import { audit } from '../audit/audit.service.js';
 import {
   allocateAttemptNumber,
   claimFirstPass,
+  releaseAttemptNumber,
+  reserveAttemptNumber,
   countOnLedger,
   startCooldownIfDue,
 } from './ledger.store.js';
@@ -220,7 +222,6 @@ export async function startSession(
     deps.shuffle,
   );
   const order = chosen.map((id) => byId.get(id) as NonNullable<ReturnType<typeof byId.get>>);
-  const attemptNumber = await allocateAttemptNumber(userId, assessmentId);
   let session;
   try {
     session = await AssessmentSession.create({
@@ -234,7 +235,6 @@ export async function startSession(
         optionCount: q.options.length,
         correctAnswer: q.correctAnswer,
       })),
-      attemptNumber,
       passingScore: doc.passingScore,
       startedAt: now,
       expiresAt: new Date(now.getTime() + deps.sessionTtlSeconds * 1000),
@@ -274,6 +274,34 @@ export async function startSession(
       },
       { $set: { status: 'abandoned', closedAt: now } },
     );
+  }
+
+  // The attempt number is reserved only now that this start owns the one open session (P3-L11),
+  // so a start that lost a race never consumes a number and numbering stays dense. The same
+  // conditional update refuses the reservation while a cooldown runs or the failure streak is at
+  // the limit (P3-L10), so a start cannot slip in between the last failure and the cooldown write.
+  const reservation = await reserveAttemptNumber(userId, assessmentId, {
+    afterFails: deps.cooldownAfterFails,
+    minutes: deps.cooldownMinutes,
+    now,
+  });
+  if ('blockedUntil' in reservation) {
+    await AssessmentSession.updateOne(
+      { _id: session._id, status: 'open' },
+      { $set: { status: 'abandoned', closedAt: now } },
+    );
+    throw assessmentCooldown(reservation.blockedUntil, now);
+  }
+  const attemptNumber = reservation.attemptNumber;
+  const bound = await AssessmentSession.updateOne(
+    { _id: session._id, status: 'open' },
+    { $set: { attemptNumber } },
+  );
+  if (bound.matchedCount === 0) {
+    // Another start closed this session between its creation and the reservation: it is dead, so
+    // hand the number back (possible while nobody drew a later one) and report the lost race.
+    await releaseAttemptNumber(userId, assessmentId, attemptNumber);
+    throw conflict('A session for this assessment was just started');
   }
 
   // Whitelist: text and options only. The key and the explanation stay on the server.
@@ -713,6 +741,11 @@ export async function submitAttempt(
     if (!expired) throw sessionClosed();
     throw sessionExpired();
   }
+
+  // A running cooldown also stops a session that was opened before it began (P3-L10). Abandoning
+  // stays possible and is counted as a failure.
+  const cooling = activeCooldown(resolved.state, resolved.assessment.id, now);
+  if (cooling) throw assessmentCooldown(cooling, now);
 
   // Re-checked at submit time (P3-L2): a pass committed since this session started closes it.
   if (resolved.alreadyPassed) throw alreadyPassed();

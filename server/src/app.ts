@@ -18,14 +18,27 @@ import type { LearningHooks } from './features/learning/learningHooks.js';
 import type { Shuffle } from './features/learning/shuffle.js';
 import { allRoutes } from './routes.js';
 
-/** Connected, and every unique index the learning engine relies on exists. */
-async function isDatabaseReady(): Promise<boolean> {
-  if (!isDbConnected()) return false;
-  try {
-    return (await missingLearningIndexes()).length === 0;
-  } catch {
-    return false;
-  }
+/** How long a successful index check is trusted before it is repeated. */
+const READINESS_CACHE_MS = 30_000;
+
+/**
+ * Connected, and every unique index the learning engine relies on exists with the right definition.
+ * A positive index check is cached for a while so probes stay cheap; a failure is never cached, so
+ * recovery shows immediately.
+ */
+function databaseReadiness(clock: () => Date): () => Promise<boolean> {
+  let okUntil = 0;
+  return async () => {
+    if (!isDbConnected()) return false;
+    if (clock().getTime() < okUntil) return true;
+    try {
+      const ok = (await missingLearningIndexes()).length === 0;
+      if (ok) okUntil = clock().getTime() + READINESS_CACHE_MS;
+      return ok;
+    } catch {
+      return false;
+    }
+  };
 }
 
 export interface AppOptions {
@@ -48,13 +61,14 @@ export interface AppOptions {
 export async function createApp({
   logger,
   config,
-  isReady = isDatabaseReady,
+  isReady: isReadyOption,
   clock = () => new Date(),
   routes = [],
   timing,
   learningHooks,
   shuffle,
 }: AppOptions): Promise<Express> {
+  const isReady = isReadyOption ?? databaseReadiness(clock);
   const app = express();
 
   app.disable('x-powered-by');
