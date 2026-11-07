@@ -1037,7 +1037,13 @@ describe('SEC-AL: audit trail and logs', () => {
     ]) {
       expect(actions, a).toContain(a);
     }
-    const dump = JSON.stringify(await AuditLog.collection.find({}).toArray());
+    // The chain fields (prevHash, hash) are HMAC digests: 64 hex characters by design. They are
+    // removed here so the scan below can still catch a leaked token or password hash.
+    const dump = JSON.stringify(
+      (await AuditLog.collection.find({}).toArray()).map(
+        ({ prevHash: _p, hash: _h, ...rest }) => rest,
+      ),
+    );
     const forbidden = {
       ghost,
       typed: 'Typed-Secret',
@@ -1057,12 +1063,12 @@ describe('SEC-AL: audit trail and logs', () => {
   });
 
   it('AL3: additional mutation paths on AuditLog are blocked', async () => {
-    const doc = await AuditLog.create({
+    const written = await audit.record({
       action: 'auth.logout',
       outcome: 'success',
       metadata: { n: 1 },
     });
-    const id = doc._id;
+    const id = new Types.ObjectId(written.id);
     const original = JSON.stringify(await AuditLog.collection.findOne({ _id: id }));
     const load = async () => {
       const d = await AuditLog.findById(id);
@@ -1120,6 +1126,9 @@ describe('SEC-AL: audit trail and logs', () => {
               replaceOne: {
                 filter: { _id: id },
                 replacement: {
+                  seq: 1,
+                  prevHash: '0'.repeat(64),
+                  hash: '1'.repeat(64),
                   action: 'auth.logout',
                   outcome: 'failure',
                   severity: 'info',

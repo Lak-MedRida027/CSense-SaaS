@@ -80,3 +80,8 @@ Constraints:
   The escalation document is mutable, so its notes rely on the audit hash, not on immutability.
   Escalating only on High may under-alert during roll-out; the product owner may switch Medium on
   (decision D4-13), which only changes the trigger table.
+
+## Amendments (implementation, Phase 4)
+- Added reason `repeated_assessment_cooldowns` (elevated, security team): `ESCALATE_AFTER_COOLDOWNS` cooldown audit entries (default 2) for the same assessment inside `ESCALATE_COOLDOWN_WINDOW` (default 7 days). One active escalation exists per employee and assessment; further cooldowns add a `retriggered` event. The check runs on every attempt and in reconcile, whether or not the risk profile changed.
+- The uniqueness rule for active escalations is a partial index on `{userId, reason, scopeKey}` where `active` is true and `scopeKey` is a string (`risk`, `assessment:<id>`). Critical events have no scope key.
+- The security team is notified right after the escalation is stored and before its audit entry is written, so a failing audit write cannot suppress the notification.

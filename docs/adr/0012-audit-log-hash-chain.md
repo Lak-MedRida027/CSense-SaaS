@@ -56,3 +56,9 @@ Adopt option 3 now; plan option 4 as a Phase 10 hardening.
   and retry. Deleting the newest entries is detectable only against an earlier anchor (verify output,
   forwarded logs) until Phase 10 adds external anchoring. A compromised key allows forging, so key
   rotation (a `keyId` per entry) is a Phase 10 follow-up.
+
+## Implementation notes (Phase 4)
+- `audit.integrity_checked` carries the tip hash as `tipDigest`: the audit sanitiser drops any metadata key containing `hash`, `pass`, `token` or `secret`.
+- `createdAt` is a plain required field set by the service (Mongoose `timestamps` is off for this model), so the stored value is exactly the hashed value.
+- Sequence collisions between writers are retried up to 10 times with a short random back-off.
+- `AUDIT_CHAIN_SECRET` is removed from `process.env` by the API after start-up (`scrubServerSecrets`, together with the two JWT secrets).

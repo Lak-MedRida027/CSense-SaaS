@@ -77,3 +77,7 @@ So in Phase 4 Simulation has no data for anyone, and Behavioural has no gate dat
   not an empirical model; they are named constants with tests and marked provisional. Engagement
   penalises employees part-way through the course until due dates exist (Phase 7). Knowledge does not
   improve after the course until continuous review (flag) adds new first attempts.
+
+## Amendments (implementation, Phase 4)
+- First attempt means the attempt with the lowest `attemptNumber` per assessment (earliest `attemptedAt` on a tie); the model never assumes an attempt numbered 1 exists. The same rule decides the XP first-try bonus (the passing attempt is the first attempt).
+- Behavioural v1 also reads the `learning.assessment.cooldown` audit entries written by Phase 3: each cooldown adds 25 points to the conduct score, at most two count, capped at 100. The model stays at version 1 because it has not been released.

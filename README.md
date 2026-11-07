@@ -26,8 +26,8 @@ npm run dev                 # shared (watch) + API on :4000 + Electron window
 ```
 Check the API: `curl http://localhost:4000/api/v1/health/ready` returns `{"status":"ready"}`.
 
-The API refuses to start until `JWT_ACCESS_SECRET` and `REFRESH_TOKEN_SECRET` are set in `.env`
-(each base64url, at least 43 characters with at least 16 distinct ones, and different). `.env.example` shows how to generate them.
+The API refuses to start until `JWT_ACCESS_SECRET`, `REFRESH_TOKEN_SECRET` and `AUDIT_CHAIN_SECRET` are set in `.env`
+(each base64url, at least 43 characters with at least 16 distinct ones, and all different). The API removes them from its process environment after reading them. `.env.example` shows how to generate them.
 
 ## First administrator
 Accounts are created by administrators only, so the very first one is created from a shell
@@ -57,6 +57,31 @@ NODE_ENV=development npm run seed:learning:dev -w @csense/server
 NODE_ENV=development npm run seed:learning:dev -w @csense/server -- --reset --confirm=csense
 ```
 Session length is set with `ASSESSMENT_SESSION_TTL` (default `60m`, range 5m to 4h).
+
+### Badges
+`seed:learning:dev` also creates the seven development badges (one per module). To (re)run only that part:
+```bash
+NODE_ENV=development npm run seed:badges:dev -w @csense/server
+```
+It follows the same guards (development or test only, local MongoDB unless `SEED_ALLOW_REMOTE=true`), creates only
+missing badges and keeps existing ones. `--reset` now also clears badges, awards, risk profiles, escalations and
+employee XP (never the audit log), and needs `AUDIT_CHAIN_SECRET` because the reset is audited.
+
+## Operations: reconcile and audit verification (Phase 4)
+Both commands need the same `.env` as the API (`MONGODB_URI` and the three secrets) and are allowed in production.
+```bash
+# Rebuild XP, badges, risk profiles, escalations and missing audit entries from the attempt history.
+npm run gamification:reconcile:dev -w @csense/server -- [--user <id>] [--dry-run] [--force-xp] [--reason model_upgrade|config_change]
+# after `npm run build`:  npm run gamification:reconcile -w @csense/server -- ...
+
+# Check the audit-log hash chain; prints JSON and exits 1 on a break (edit, deletion or reordering).
+npm run audit:verify:dev -w @csense/server -- [--from=<seq>]
+# after `npm run build`:  npm run audit:verify -w @csense/server
+```
+`gamification:reconcile` is idempotent. `--dry-run` writes nothing (not even audit entries) and exits 2 if it found drift;
+`--force-xp` lets XP go down after a rule change (by default it only ever rises). A real run writes a
+`maintenance.reconcile_run` audit entry. The API also runs a sweeper every `RECONCILE_SWEEP_INTERVAL` (default 5m,
+`0` disables) that repairs employees marked after a failed hook and completes unaudited escalation events.
 
 ## Scripts
 | Command | What it does |

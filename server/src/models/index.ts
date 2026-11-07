@@ -11,3 +11,7 @@ export { RiskProfile } from './RiskProfile.js';
 export { PhishingSimulation } from './PhishingSimulation.js';
 export { AuthSession, type AuthSessionRevokeReason } from './AuthSession.js';
 export { AuditLog, AuditLogImmutableError } from './AuditLog.js';
+export { BadgeAward, BadgeAwardImmutableError } from './BadgeAward.js';
+export { RiskAssessment, RiskAssessmentImmutableError } from './RiskAssessment.js';
+export { Escalation } from './Escalation.js';
+export { ReconcileMarker } from './ReconcileMarker.js';

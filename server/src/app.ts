@@ -14,6 +14,12 @@ import type { RouteDef } from './http/routeRegistry.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { createLimiters } from './middleware/rateLimit.js';
+import { configureAudit, createAuditService } from './features/audit/audit.service.js';
+import {
+  createGamificationServices,
+  type GamificationServices,
+} from './features/gamification/services.js';
+import type { SecurityTeamNotifier } from './features/governance/notifier.js';
 import type { LearningHooks } from './features/learning/learningHooks.js';
 import type { Shuffle } from './features/learning/shuffle.js';
 import { allRoutes } from './routes.js';
@@ -52,8 +58,12 @@ export interface AppOptions {
   routes?: RouteDef[];
   /** Test seam for the failed-login response-time floor. */
   timing?: Timing;
-  /** Learning seam for Phase 4 (XP, badges, risk). Defaults to no-ops. */
+  /** Replaces the real XP, badge and risk hooks (tests inject spies). */
   learningHooks?: LearningHooks;
+  /** The Phase 4 services; built from the config when omitted. */
+  gamification?: GamificationServices;
+  /** Receives escalation notices; defaults to a structured log line. */
+  notifier?: SecurityTeamNotifier;
   /** Test seam for the question-order shuffle. */
   shuffle?: Shuffle;
 }
@@ -66,10 +76,19 @@ export async function createApp({
   routes = [],
   timing,
   learningHooks,
+  gamification: providedGamification,
+  notifier,
   shuffle,
 }: AppOptions): Promise<Express> {
   const isReady = isReadyOption ?? databaseReadiness(clock);
   const app = express();
+
+  // Every audit write goes through this service (hash chain, ADR 0012).
+  configureAudit(createAuditService({ chainSecret: config.audit.chainSecret, clock }));
+  const gamification =
+    providedGamification ??
+    createGamificationServices({ config, clock, logger, ...(notifier ? { notifier } : {}) });
+  app.locals.gamification = gamification;
 
   app.disable('x-powered-by');
   app.set('query parser', 'simple');
@@ -99,6 +118,7 @@ export async function createApp({
       floor,
       onCredentialsFailure: limiters.onCredentialsFailure,
       logger,
+      gamification,
       ...(timing ? { timing } : {}),
       ...(learningHooks ? { learningHooks } : {}),
       ...(shuffle ? { shuffle } : {}),

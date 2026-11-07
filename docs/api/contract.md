@@ -4,8 +4,8 @@ Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs
 
 **Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
 routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
-`GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only). These 23 are
-the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+`GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only); Phase 4 the
+8 routes for XP, badges, risk profiles, escalations and the audit log. These 31 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
@@ -70,7 +70,8 @@ enumeration. Stack traces and internal messages are never returned.
 | `SESSION_EXPIRED` | 409 | submission after the session time limit; an `expired` attempt is recorded |
 | `RATE_LIMITED` (session routes) | 429 | more than `SESSION_START_RATE_MAX` quiz or final-test session starts per employee per window; `Retry-After` set |
 | `ASSESSMENT_COOLDOWN` | 409 | `ASSESSMENT_COOLDOWN_AFTER_FAILS` consecutive failed attempts at this quiz or final test; sent with `Retry-After` (seconds) and `details: { retryAt }` (ISO time). A pass resets the streak |
-| `CONFLICT` | 409 | unique constraint (email in use) or a concurrent quiz-session start that lost the race |
+| `CONFLICT` | 409 | unique constraint (email in use), a concurrent quiz-session start that lost the race, or a stale `expectedVersion` on an escalation |
+| `INVALID_STATE_TRANSITION` | 409 | escalation action not allowed in the current status (resolve before acknowledge, acknowledge twice, anything but a note once resolved) |
 | `PAYLOAD_TOO_LARGE` | 413 | body over `JSON_BODY_LIMIT` |
 | `RATE_LIMITED` | 429 | rate limit hit; `Retry-After` and `RateLimit` headers set |
 | `INTERNAL_ERROR` | 500 | anything else |
@@ -130,14 +131,27 @@ Notes:
 - `QuizOverviewDTO` and `FinalTestOverviewDTO` carry `cooldownUntil` (ISO time or null) and `questionCount` is the number a session serves, not the size of the pool; `blockedReason` can be `cooldown`.
 - Pass threshold is `Quiz.passingScore` per module (default 70); score is `floor(100*correct/total)`.
 - Answer-set problems (unserved or duplicate question, option out of range) are `VALIDATION_ERROR` 400 with paths like `answers.2.questionId`; the session stays open.
-- `/me/dashboard`, `/me/progress` (Phase 6) and `/me/badges` (Phase 4) are not implemented; `GET /modules` carries the progress overview now.
+- `/me/dashboard` and `/me/progress` (Phase 6) are not implemented; `GET /modules` carries the progress overview now.
+- `AttemptResultDTO.effects` is `{ xpEarned?, badge? }`: on the passing attempt of a module `xpEarned` is the whole XP of that module (completion, first try, perfect, practice) and `badge` is the module badge; failed attempts carry `{}`. Both are rebuilt from the attempt history by reconcile if a hook fails.
 
 ### View Progress Dashboard
 | Method | Route | Auth | Phase |
 |---|---|---|---|
 | GET | `/me/dashboard`, `/me/progress` | self | 6 |
-| GET | `/me/badges` | self | 4 |
 | PATCH | `/me/onboarding` (FR4; no use case in the UML) | self | 6 |
+
+### Gamification (Phase 4; ADR 0009)
+Employee-only, self only: identity comes from the token, no route takes a user id, and any query
+parameter is a 400. An administrator token is 403. There is deliberately **no `/me/risk`**: employees
+never see their own risk (D4-22).
+| Method | Route | Success |
+|---|---|---|
+| GET | `/me/xp` | 200 `XpSummaryDTO` `{ totalXP, level, tier 1-5, currentLevelFloorXP, nextLevel, nextLevelXP, xpToNextLevel, thresholds }` (thresholds 0 / 300 / 900 / 2000 / 3500) |
+| GET | `/me/badges` | 200 `MyBadgesDTO` `{ items: BadgeProgressDTO[], earnedCount, totalCount }`: badges of the current curriculum in order (`position`), then earned badges of modules that left it (`position: null`) |
+
+XP rules: module pass 150, first-try pass +100, perfect score +50, +10 per exercise answered correctly on
+the first try; final test 400 / +200 / +100. Failed, abandoned and expired attempts earn nothing and retries
+cannot farm XP. XP and badges are projections of the attempt history, so they are idempotent and rebuildable.
 
 ### Respond to Phishing Simulation (flag `FEATURE_PHISHING`)
 | Method | Route | Auth | Phase |
@@ -170,7 +184,7 @@ The first administrator is created by the `bootstrap:admin` CLI (decision U20), 
 | POST | `/admin/modules/:moduleId/publish`, `/unpublish` | admin | 7 |
 | PUT | `/admin/modules/order` | admin | 7 |
 | GET, PUT | `/admin/modules/:moduleId/quiz` | admin | 7 |
-| GET, POST, PATCH | `/admin/badges[/:badgeId]` | admin | 4/7 |
+| GET, POST, PATCH | `/admin/badges[/:badgeId]` | admin | 7 (D4-5; Phase 4 ships the dev badge seed and the authoring schema) |
 
 ### Manage Final Assessment
 | Method | Route | Auth | Phase |
@@ -180,15 +194,39 @@ The first administrator is created by the `bootstrap:admin` CLI (decision U20), 
 ### View Employee Risk Profiles
 | Method | Route | Auth | Phase |
 |---|---|---|---|
-| GET | `/admin/risk-profiles?level=` | admin | 4/7 |
-| GET | `/admin/users/:userId/risk-profile` | admin | 4/7 |
+| Method | Route | Success | Errors |
+|---|---|---|---|
+| GET | `/admin/risk-profiles?level=Low\|Medium\|High\|unassessed&department=&sort=composite_desc\|composite_asc\|name_asc\|computed_desc&page=&pageSize=` | 200 `{ items: RiskProfileSummaryDTO[], page, pageSize, total }` | 400 |
+| GET | `/admin/users/:userId/risk-profile` | 200 `RiskProfileDetailDTO` (profile with evidence and weights, last 20 assessments newest first, active escalations and the last 5 resolved). An employee without a profile yet is 200 with null scores | 400, 404 (unknown id or not an employee) |
+
+Risk model v1 (ADR 0010): every sub-score and the composite are integers 0-100 where **higher means riskier**.
+Composite = Knowledge 30% + Behavioural 25% + Simulation 30% + Engagement 15%; dimensions that are not assessed
+(or disabled, Simulation while `FEATURE_PHISHING` is off) are dropped and the remaining weights re-normalised
+(`coverage` and `effectiveWeightsBp` show this). Bands: 0-39 Low (Green), 40-69 Medium (Amber), 70-100 High (Red).
+No composite until first attempts exist on two assessments ("not assessed"). Knowledge uses the first attempt of each
+assessment (lowest attempt number). Behavioural v1 is assessment conduct (abandoned/expired attempts, repeated failed
+submissions) plus 25 points per assessment cooldown (at most two count). Admin reads return the stored profile and
+never recompute.
 
 ### Review Governance Escalations
 | Method | Route | Auth | Phase |
 |---|---|---|---|
-| GET | `/admin/escalations` | admin | 4 |
-| GET, PATCH | `/admin/escalations/:escalationId` | admin | 4 |
-| GET | `/admin/audit-logs` (read-only) | admin | 4 |
+Administrator-only (ADR 0011). Escalations open when an employee **enters High**, when an employee reaches
+`ESCALATE_AFTER_COOLDOWNS` (default 2) assessment cooldowns on the same quiz or final test within
+`ESCALATE_COOLDOWN_WINDOW` (default 7 days), and for critical events (gate restriction, credentials submitted in a
+simulation; producers arrive with Phase 5 and the phishing flag; `critical`, management tier). Every escalation
+and every state change writes an audit entry (outbox: a failed audit write leaves the event flagged and the sweeper
+completes it; the PATCH then answers 500).
+| Method | Route | Body / query | Success | Errors |
+|---|---|---|---|---|
+| GET | `/admin/escalations` | `status=open\|acknowledged\|resolved\|active, severity, reason, userId, page, pageSize` | 200 `{ items: EscalationSummaryDTO[], page, pageSize, total, counts: {open, acknowledged} }` | 400 |
+| GET | `/admin/escalations/:escalationId` | none | 200 `EscalationDetailDTO` (context snapshot, events, notes) | 400, 404 |
+| PATCH | `/admin/escalations/:escalationId` | `{action:'acknowledge', expectedVersion, note?}` \| `{action:'note', note, expectedVersion?}` \| `{action:'resolve', expectedVersion, resolution, note, managementReference?}` | 200 `EscalationDetailDTO` | 400 (a management-tier resolve needs `managementReference`), 404, 409 `INVALID_STATE_TRANSITION` / `CONFLICT`, 500 audit failed (state change stands) |
+| GET | `/admin/audit-logs` (read-only) | `action, severity, outcome, actorId, targetType, targetId, from, to, before (seq cursor), limit 1-200` | 200 `{ items: AuditLogDTO[], nextCursor }` newest first by `seq` | 400 |
+
+Resolutions: `remediated`, `risk_accepted`, `false_positive`, `no_action_required`. Note text is stored on the
+escalation only; audit entries carry its SHA-256 and length. POST, PUT, PATCH and DELETE on
+`/admin/audit-logs` do not exist (404).
 
 ### Generate Awareness Reports
 | Method | Route | Auth | Phase |
@@ -212,6 +250,11 @@ The first administrator is created by the `bootstrap:admin` CLI (decision U20), 
 
 ## System-triggered use cases (no route)
 Award Badge, Update Risk Profile, Trigger Governance Escalation and Escalate Restricted Access are
-internal services called by the routes above. Each one that escalates writes an immutable audit-log
+internal services called by the routes above. Phase 4 wires Award Badge and Update Risk Profile to the
+learning hooks (every attempt recomputes the profile), and `governance.recordCriticalEvent` is the entry
+point Phase 5 (gate) and the phishing flag call. Reconcile (`gamification:reconcile`, plus the in-process
+sweeper) repairs anything a failed hook or audit write left behind. Each one that escalates writes an immutable audit-log
 entry (Phase 2 provides the append-only `AuditLog` model and service). Authentication events
 (login success/failure, refresh-token reuse, logout, user creation, admin bootstrap) are audited too.
+Since Phase 4 the audit log is a keyed hash chain (HMAC-SHA256 with `AUDIT_CHAIN_SECRET`, dense `seq`, ADR 0012);
+`npm run audit:verify -w @csense/server` detects edits, deletions and reordering.

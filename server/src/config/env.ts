@@ -39,7 +39,7 @@ const SECRET_MIN_DISTINCT = 16;
  * characters, and enough distinct characters to reject 'aaaa...' or repeated phrases. Messages name
  * the key (added by loadEnv) and never echo the value.
  */
-const generatedSecret = z
+export const generatedSecret = z
   .string()
   .min(SECRET_MIN_LENGTH, `must be at least ${String(SECRET_MIN_LENGTH)} characters`)
   .regex(/^[A-Za-z0-9_-]+$/, 'must use only base64url characters (A-Z, a-z, 0-9, - and _)')
@@ -70,6 +70,8 @@ export const envSchema = z
     // --- Authentication and security (Phase 2, ADR 0004). Secrets have no defaults on purpose. ---
     JWT_ACCESS_SECRET: generatedSecret,
     REFRESH_TOKEN_SECRET: generatedSecret,
+    // Keys the audit-log hash chain (Phase 4, ADR 0012). Same rules as the JWT secrets; must differ.
+    AUDIT_CHAIN_SECRET: generatedSecret,
     JWT_ACCESS_TTL: boundedDuration(MINUTE, 30 * MINUTE, '15m'),
     JWT_REFRESH_TTL: boundedDuration(HOUR, 14 * DAY, '7d'),
     BCRYPT_COST: z.coerce.number().int().min(BCRYPT_MIN_COST).max(15).default(BCRYPT_MIN_COST),
@@ -96,6 +98,27 @@ export const envSchema = z
     ASSESSMENT_COOLDOWN_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
     SESSION_START_RATE_MAX: positiveInt(10),
     SESSION_START_RATE_WINDOW_MS: positiveInt(600_000),
+
+    // --- Gamification, risk and governance (Phase 4, ADR 0009-0012) ---
+    // How often the in-process sweeper repairs missed XP, badge, risk and audit-outbox writes.
+    // "0" disables it; otherwise 1m..1h.
+    RECONCILE_SWEEP_INTERVAL: z
+      .string()
+      .regex(/^(0|\d+[smh])$/, 'must be 0 or look like 5m')
+      .refine(
+        (v) => {
+          if (v === '0') return true;
+          if (!isDuration(v)) return false;
+          const seconds = parseDuration(v);
+          return seconds >= MINUTE && seconds <= HOUR;
+        },
+        { message: 'must be 0 or between 1m and 1h' },
+      )
+      .default('5m'),
+    // Repeated quiz failures are flagged to the security team: this many assessment cooldowns on
+    // the same assessment inside the window open an elevated escalation.
+    ESCALATE_AFTER_COOLDOWNS: z.coerce.number().int().min(1).max(20).default(2),
+    ESCALATE_COOLDOWN_WINDOW: boundedDuration(HOUR, 90 * DAY, '7d'),
   })
   .superRefine((env, ctx) => {
     if (env.JWT_ACCESS_SECRET === env.REFRESH_TOKEN_SECRET) {
@@ -104,6 +127,15 @@ export const envSchema = z
         path: ['REFRESH_TOKEN_SECRET'],
         message: 'must differ from JWT_ACCESS_SECRET',
       });
+    }
+    for (const other of ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET'] as const) {
+      if (env.AUDIT_CHAIN_SECRET === env[other]) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['AUDIT_CHAIN_SECRET'],
+          message: `must differ from ${other}`,
+        });
+      }
     }
   });
 
