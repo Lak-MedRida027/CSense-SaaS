@@ -169,6 +169,9 @@ export async function startSession(
   // timeout) gets the session it already has instead of burning an attempt.
   if (
     open?.startedAt &&
+    // Only a session that already owns its attempt number is handed out again: until the
+    // reservation succeeds the start may still be refused by the cooldown gate.
+    open.attemptNumber != null &&
     deps.startReuseSeconds > 0 &&
     now.getTime() < open.expiresAt.getTime() &&
     now.getTime() - open.startedAt.getTime() < deps.startReuseSeconds * 1000
@@ -505,6 +508,17 @@ async function finalizeSession(
   info: RequestInfo,
 ): Promise<Finalized | null> {
   const now = deps.clock();
+  // A session without an attempt number was never admitted by the start gate and never returned to
+  // any client (start answers only after the reservation, and the reuse path skips such sessions).
+  // Closing it, for any reason, is therefore not an attempt: no number is drawn, no attempt is
+  // written, and the failure streak and cooldown are left alone. It is only marked closed.
+  if (session.attemptNumber == null) {
+    await AssessmentSession.updateOne(
+      { _id: session._id, userId: session.userId, status: 'open' },
+      { $set: { status: 'abandoned', closedAt: now } },
+    );
+    return null;
+  }
   const claim = await AssessmentSession.findOneAndUpdate(
     {
       _id: session._id,
@@ -532,10 +546,8 @@ async function finalizeSession(
   const userHex = session.userId.toHexString();
   const assessmentHex = session.assessmentId.toHexString();
 
-  // The number was allocated atomically when the session started (P3-L2). A session planted
-  // outside the API has none and takes a fresh one now.
-  let attemptNumber =
-    session.attemptNumber ?? (await allocateAttemptNumber(userHex, assessmentHex));
+  // The number was reserved atomically when the session started (P3-L2).
+  let attemptNumber = session.attemptNumber;
   const insertAttempt = async (): Promise<AttemptRecord> => {
     const created = await QuizAttempt.create({
       userId: session.userId,
@@ -744,8 +756,20 @@ export async function submitAttempt(
 
   // A running cooldown also stops a session that was opened before it began (P3-L10). Abandoning
   // stays possible and is counted as a failure.
-  const cooling = activeCooldown(resolved.state, resolved.assessment.id, now);
-  if (cooling) throw assessmentCooldown(cooling, now);
+  // The ledger is read fresh here, and a streak at the limit counts as a cooldown that is about to
+  // be written, so a session whose start is still being refused cannot be graded in that window.
+  const ledger = await AttemptCounter.findOne({
+    userId: toObjectId(userId),
+    assessmentId: toObjectId(resolved.assessment.id),
+  })
+    .select('consecutiveFails cooldownUntil')
+    .lean();
+  if (ledger?.cooldownUntil && ledger.cooldownUntil.getTime() > now.getTime()) {
+    throw assessmentCooldown(ledger.cooldownUntil, now);
+  }
+  if (ledger && ledger.consecutiveFails >= deps.cooldownAfterFails) {
+    throw assessmentCooldown(new Date(now.getTime() + 5000), now);
+  }
 
   // Re-checked at submit time (P3-L2): a pass committed since this session started closes it.
   if (resolved.alreadyPassed) throw alreadyPassed();

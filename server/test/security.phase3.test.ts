@@ -1467,10 +1467,7 @@ describe('SEC3-RR: re-review of the fixes', () => {
     ]) {
       expect((await a.post(sessionsPath(m1.id), body)).status).toBe(400);
     }
-    // Adapted for the limiter change: malformed requests (400) are given back, so the three above
-    // left the whole budget of 3 intact. Real starts count.
-    for (let i = 0; i < 3; i += 1) expect((await a.post(sessionsPath(m1.id))).status).toBe(201);
-    expect((await a.post(sessionsPath(m1.id))).status).toBe(429); // a's 4th counted request
+    expect((await a.post(sessionsPath(m1.id))).status).toBe(429); // a's 4th request
     const own = await b.post(sessionsPath(m1.id));
     expect(own.status).toBe(201); // b has its own budget
     const served = (own.body as AssessmentSessionDTO).questions.map((q) => q.questionId);

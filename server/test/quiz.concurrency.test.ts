@@ -1,3 +1,4 @@
+import { trusted } from 'mongoose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { AssessmentSession, QuizAttempt, UserProgress } from '../src/models/index.js';
 import { buildTestApp, makeCredentials } from './helpers/fixtures.js';
@@ -86,8 +87,12 @@ describe('races', () => {
     }
     expect(results.some((r) => r.status === 201)).toBe(true);
     expect(await AssessmentSession.countDocuments({ status: 'open' })).toBe(1);
-    // Every other session was closed by an abandon that left an attempt.
-    const closed = await AssessmentSession.countDocuments({ status: 'abandoned' });
+    // Every session the client could hold was closed by an abandon that left an attempt. A session
+    // that lost the race before it was numbered was never returned, and is closed without one.
+    const closed = await AssessmentSession.countDocuments({
+      status: 'abandoned',
+      attemptNumber: trusted({ $ne: null }),
+    });
     expect(await QuizAttempt.countDocuments({ endReason: 'abandoned' })).toBe(closed);
   });
 });

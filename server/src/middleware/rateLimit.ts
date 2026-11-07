@@ -227,10 +227,9 @@ export function createLimiters(
     ...common,
     windowMs: cfg.sessionStartWindowMs,
     limit: cfg.sessionStartMax,
-    // Requests refused as malformed (400) are given back; locked, cooldown, conflict and success
-    // all count, because each of them reached the learning rules.
-    skipFailedRequests: true,
-    requestWasSuccessful: (_req, res) => res.statusCode !== 400,
+    // Every request counts and nothing is refunded afterwards. A refund based on how the response
+    // ends can be forced by the client (abort the connection, send a malformed body), which would
+    // let one account start sessions without limit.
     keyGenerator: (_req, res) =>
       `user:${(res.locals as { auth?: { userId?: string } | null }).auth?.userId ?? 'anonymous'}`,
     handler: respond(),

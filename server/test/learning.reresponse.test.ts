@@ -1,5 +1,7 @@
+import http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { Types } from 'mongoose';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { ensureLearningIndexes, missingLearningIndexes } from '../src/db/learningIndexes.js';
 import { reserveAttemptNumber, startCooldownIfDue } from '../src/features/learning/ledger.store.js';
 import {
@@ -9,6 +11,7 @@ import {
   UserProgress,
 } from '../src/models/index.js';
 import { buildTestApp, makeCredentials } from './helpers/fixtures.js';
+import { close, listen } from './helpers/rawHttp.js';
 import {
   completeContent,
   createCurriculum,
@@ -22,6 +25,15 @@ let creds: { password: string; hash: string };
 beforeAll(async () => {
   creds = await makeCredentials();
 });
+
+const waitUntil = async (check: () => Promise<boolean>, timeoutMs = 5000): Promise<void> => {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (await check()) return;
+    await new Promise((r) => setTimeout(r, 20));
+  }
+  throw new Error('condition not reached');
+};
 
 const need = <T>(v: T | undefined): T => {
   if (v === undefined) throw new Error('fixture');
@@ -137,7 +149,7 @@ describe('dense attempt numbers (P3-L11)', () => {
     const numbers = (await QuizAttempt.find({ userId: emp.id }).lean())
       .map((a) => a.attemptNumber)
       .sort((a, b) => a - b);
-    if (numbers.length > 0) expect(numbers[0]).toBe(1);
+    expect(numbers).toEqual(Array.from({ length: recorded }, (_, i) => i + 1)); // dense from 1
     expect(new Set(numbers).size).toBe(numbers.length);
     expect(numbers).not.toContain(need(open[0]).attemptNumber);
   });
@@ -180,18 +192,196 @@ describe('index verification compares definitions (P3-L12)', () => {
   });
 });
 
-describe('session-start limiter counts what reached the rules (info)', () => {
-  it('locked and cooldown starts count; malformed ones do not', async () => {
+describe('session-start limiter counts every request', () => {
+  it('malformed, locked and successful starts all draw on the same budget', async () => {
     const t = await buildTestApp({ rateLimit: { sessionStartMax: 3 } });
     const c = await createCurriculum({ count: 2 });
     const m2 = need(c.modules[1]);
     const emp = await signedInEmployee(t.app, creds);
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 2; i += 1) {
       expect((await emp.post(`/modules/${m2.id}/quiz/sessions`, { junk: 1 })).status).toBe(400);
     }
-    for (let i = 0; i < 3; i += 1) {
-      expect((await emp.post(`/modules/${m2.id}/quiz/sessions`)).status).toBe(403); // locked
-    }
+    expect((await emp.post(`/modules/${m2.id}/quiz/sessions`)).status).toBe(403); // locked
     expect((await emp.post(`/modules/${m2.id}/quiz/sessions`)).status).toBe(429);
+  });
+
+  it('a client that aborts every connection right after sending a start still spends its budget', async () => {
+    const t = await buildTestApp({ rateLimit: { sessionStartMax: 3 } });
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+
+    // Slow session creation, so that the connection is gone before any response is written.
+    const create = AssessmentSession.create.bind(AssessmentSession) as (
+      ...x: unknown[]
+    ) => Promise<unknown>;
+    const slow = vi.spyOn(AssessmentSession, 'create').mockImplementation((async (
+      ...args: unknown[]
+    ) => {
+      await new Promise((r) => setTimeout(r, 250));
+      return create(...args);
+    }) as never);
+    const server = await listen(t.app);
+    try {
+      const { port } = server.address() as AddressInfo;
+      // node:http request that is destroyed 80 ms after it was sent, while the (slowed) server is
+      // still working on it, so no response is ever read.
+      const abortedStart = (): Promise<void> =>
+        new Promise((resolve) => {
+          const req = http.request({
+            host: '127.0.0.1',
+            port,
+            method: 'POST',
+            path: `/api/v1/modules/${m1.id}/quiz/sessions`,
+            headers: { Authorization: `Bearer ${emp.token}` },
+          });
+          req.on('error', () => undefined);
+          req.on('close', () => {
+            resolve();
+          });
+          req.end();
+          setTimeout(() => {
+            req.destroy();
+          }, 80);
+        });
+      for (let i = 0; i < 3; i += 1) await abortedStart();
+      // The server still ran the aborted starts: wait until they have replaced each other.
+      // The server still ran the aborted starts although nobody was left to read the answer.
+      await waitUntil(
+        async () => (await AssessmentSession.countDocuments({ userId: emp.id })) >= 1,
+      );
+      await new Promise((r) => setTimeout(r, 800));
+
+      slow.mockRestore();
+      const next = await emp.post(`/modules/${m1.id}/quiz/sessions`);
+      expect(next.status).toBe(429);
+      expect(next.body.error.code).toBe('RATE_LIMITED');
+    } finally {
+      await close(server);
+    }
+  });
+});
+
+describe('start/submit race around the reservation (review fixes)', () => {
+  /** An open session that no start has admitted yet: it carries no attempt number. */
+  async function plantUnnumbered(
+    userId: string,
+    m: { id: string; quizId: string; questionIds: string[] },
+    keys: Map<string, number>,
+    now: Date,
+  ) {
+    return AssessmentSession.create({
+      userId,
+      kind: 'Quiz',
+      assessmentId: m.quizId,
+      moduleId: m.id,
+      passingScore: 70,
+      startedAt: now,
+      expiresAt: new Date(now.getTime() + 3_600_000),
+      questions: m.questionIds.map((q) => ({
+        questionId: q,
+        optionCount: 4,
+        correctAnswer: keys.get(q) ?? 0,
+      })),
+    });
+  }
+
+  it('(a) the idempotent-reuse path never hands out a session that has no attempt number yet', async () => {
+    const t = await buildTestApp({ learning: { startReuseSeconds: 30 } });
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    const planted = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+
+    const start = await startQuiz(emp, m1.id);
+    expect(start.res.status).toBe(201);
+    expect(start.session.sessionId).not.toBe(planted.id);
+    expect((await AssessmentSession.findById(planted.id).lean())?.status).toBe('abandoned');
+
+    // Control: a numbered session inside the window is still reused.
+    const again = await startQuiz(emp, m1.id);
+    expect(again.session.sessionId).toBe(start.session.sessionId);
+  });
+
+  it('(b) a streak at the limit blocks submission while the cooldown write is still pending', async () => {
+    const t = await buildTestApp({ learning: { cooldownAfterFails: 3, cooldownMinutes: 15 } });
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    const { session } = await startQuiz(emp, m1.id);
+    // The failing submission that reached the limit has not written the cooldown yet.
+    await AttemptCounter.updateOne({ assessmentId: m1.quizId }, { consecutiveFails: 3 });
+
+    const res = await submitQuiz(emp, m1.id, session, c.keys, 5);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('ASSESSMENT_COOLDOWN');
+    expect(await QuizAttempt.countDocuments({})).toBe(0);
+    expect((await AssessmentSession.findById(session.sessionId).lean())?.status).toBe('open');
+  });
+
+  it('(c) a graded submission never takes an attempt number: the unnumbered session is closed unused', async () => {
+    const t = await buildTestApp();
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    const planted = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+
+    const res = await emp.post(`/modules/${m1.id}/quiz/attempts`, {
+      sessionId: planted.id,
+      answers: m1.questionIds.map((q) => ({ questionId: q, selectedIndex: c.keys.get(q) ?? 0 })),
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('SESSION_CLOSED');
+    expect(await QuizAttempt.countDocuments({})).toBe(0);
+    expect((await AssessmentSession.findById(planted.id).lean())?.status).toBe('abandoned');
+    expect(await AttemptCounter.countDocuments({})).toBe(0); // no number was drawn
+    expect((await UserProgress.findOne({ userId: emp.id }).lean())?.quizPassed).toBe(false);
+  });
+
+  it('(c) an unnumbered session is not an attempt: abandon and restart close it silently', async () => {
+    const t = await buildTestApp();
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+
+    // Abandon on a session the client cannot legitimately hold: 409, nothing recorded.
+    const planted = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+    const res = await emp.post(`/modules/${m1.id}/quiz/sessions/${planted.id}/abandon`);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('SESSION_CLOSED');
+    expect((await AssessmentSession.findById(planted.id).lean())?.status).toBe('abandoned');
+
+    // Restart over an unnumbered open session: closed without an attempt, and the new session is
+    // attempt number 1 with the failure streak untouched.
+    const second = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+    const start = await startQuiz(emp, m1.id);
+    expect(start.res.status).toBe(201);
+    expect(start.session.attemptNumber).toBe(1);
+    expect((await AssessmentSession.findById(second.id).lean())?.status).toBe('abandoned');
+    expect(await QuizAttempt.countDocuments({})).toBe(0);
+    const ledger = await AttemptCounter.findOne({ assessmentId: m1.quizId }).lean();
+    expect(ledger).toMatchObject({ seq: 1, attempts: 0, consecutiveFails: 0, cooldownUntil: null });
+  });
+
+  it('(c) expiry of an unnumbered session writes no attempt either', async () => {
+    const t = await buildTestApp({ learning: { sessionTtlSeconds: 300 } });
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    const planted = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+    t.advance(301_000);
+    const res = await emp.post(`/modules/${m1.id}/quiz/attempts`, {
+      sessionId: planted.id,
+      answers: [],
+    });
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('SESSION_CLOSED');
+    expect(await QuizAttempt.countDocuments({})).toBe(0);
   });
 });
