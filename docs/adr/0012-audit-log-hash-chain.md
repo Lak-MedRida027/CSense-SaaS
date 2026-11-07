@@ -1,0 +1,58 @@
+# ADR 0012: Tamper-evident audit log with a keyed hash chain
+
+- Status: Accepted 2026-11-07 (Phase 4 plan, docs/architecture/phase-04-plan.md, decision D4-18)
+- Date: 2026-11-06
+- Deciders: Technical architect, security-tester (review), product owner (approval)
+- Resolves: ADR 0005 "tamper evidence (hash chaining) is a Phase 4 decision"
+
+## Context
+`auditlogs` is append-only at the Mongoose level (ADR 0005). The raw driver, a database user with write
+rights, or anyone with database access can still edit or delete entries without trace. Phase 4 starts
+writing the records that matter most for ISO/IEC 27001:2022 (A.5.28 evidence, A.8.15 logging): risk
+escalations and the organisation's responses. Restricting the application's database role to
+insert and find comes in Phase 10. The service is a single API instance today (in-memory rate limits,
+ADR 0004), but nothing should break if a CLI process (bootstrap, reconcile, verify) writes at the same time.
+
+Options considered:
+1. **Plain SHA-256 chain.** Anyone with database write access can recompute it after tampering, so it detects
+   accidents but not a deliberate edit.
+2. **Per-entry HMAC without a chain.** Detects edits, but not deletions or reordering.
+3. **Keyed chain (HMAC over the entry and the previous hash) with a dense sequence.** Detects edits,
+   deletions inside the chain and reordering. Forging it needs the key, which is not in the database.
+4. **External anchoring or WORM storage** (cloud object lock, a transparency log). Strongest, but it
+   needs infrastructure that belongs to Phase 10.
+
+## Decision
+Adopt option 3 now; plan option 4 as a Phase 10 hardening.
+- New AuditLog fields: `seq` (int >= 1, unique), `prevHash` (64 hex; the genesis value is 64 zeros),
+  `hash` (64 hex), `idempotencyKey` (string up to 200 or null, unique when present).
+- `hash = HMAC-SHA256(AUDIT_CHAIN_SECRET, canonical(entry))`. `canonical` is a JSON array in a fixed field order:
+  `[1, seq, prevHash, createdAt ISO-8601, action, outcome, severity, actorId, actorRole, targetType,
+  targetId, ip, userAgent, requestId, idempotencyKey, metadata]`, where `metadata` is serialised with
+  keys sorted recursively. Metadata values are restricted to JSON types (Dates become ISO strings in the
+  sanitiser before hashing), and are stored exactly as hashed. `createdAt` is set by the service from the
+  injected clock before hashing.
+- **Writer.** `audit.record` is the only writer. Under an in-process mutex it reads the tip
+  (`seq`, `hash`), computes the entry and inserts it. A duplicate key on `seq` (another process won)
+  re-reads the tip and retries up to 5 times, then fails (HTTP paths fail closed as before). A
+  duplicate key on `idempotencyKey` returns the existing entry and is success. A crash before the
+  insert allocates nothing, so it leaves no gap.
+- **Model guards.** New documents must carry `seq`, `prevHash` and `hash` (a direct `AuditLog.create`
+  without the service fails validation). `insertMany` is now blocked, because chain entries are written
+  one at a time; the Phase 2 test that allowed it changes.
+- **Secret.** `AUDIT_CHAIN_SECRET` is required, with the same rules as the other generated secrets
+  (P2-L4) and distinct from them. Losing it makes the chain unverifiable, not the log unreadable.
+- **Verification.** `audit:verify` (CLI) streams by `seq` and reports the first gap, link mismatch or
+  hash mismatch, with a non-zero exit code. It writes an `audit.integrity_checked` entry with the tip
+  `seq` and `hash` and logs them, so later runs and forwarded logs can detect truncation of the tail.
+- **Legacy.** Entries written before Phase 4 have no `seq`; they are counted and reported as unchained
+  (development data only; no production data exists yet).
+
+## Consequences
+- Positive: edits, deletions and reordering inside the chain are detectable by anyone holding the key;
+  escalation evidence becomes defensible; idempotent writes support the audit outbox (ADR 0011).
+- Negative: audit writes are serialised (one tip read plus one insert, a few milliseconds), so a burst of
+  audited events (for example failed logins under attack) queues; several API instances would contend
+  and retry. Deleting the newest entries is detectable only against an earlier anchor (verify output,
+  forwarded logs) until Phase 10 adds external anchoring. A compromised key allows forging, so key
+  rotation (a `keyId` per entry) is a Phase 10 follow-up.
