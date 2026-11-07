@@ -2,6 +2,7 @@ import { Types } from 'mongoose';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
   Assessment,
+  AssessmentSession,
   AuditLog,
   AuthSession,
   Badge,
@@ -51,6 +52,7 @@ beforeAll(async () => {
     PhishingSimulation,
     AuthSession,
     AuditLog,
+    AssessmentSession,
   ];
   await Promise.all(models.map((m) => m.syncIndexes()));
 });

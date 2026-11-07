@@ -43,6 +43,21 @@ The command is idempotent: if any administrator already exists it logs that and 
 changing anything. It never generates or prints a password, and it writes a critical
 `admin.bootstrapped` audit entry. Further accounts are created with `POST /api/v1/admin/users`.
 
+## Seed the learning content (development and tests only)
+Seven placeholder modules, seven quiz pools of ten questions (a session serves five) and a final-test
+pool of thirty (a session serves fifteen), with no client branding. There is deliberately no production build of this command. It fails closed:
+- `NODE_ENV` must be set to `development` or `test` (unset or anything else is refused);
+- a non-local MongoDB host is refused unless `SEED_ALLOW_REMOTE=true`;
+- `--reset` (wipes learning content, progress and attempts) also needs `--confirm=<database name>`
+  and writes a critical `learning.seed.reset` audit entry.
+
+It is idempotent: existing items are kept untouched and only missing ones are created.
+```bash
+NODE_ENV=development npm run seed:learning:dev -w @csense/server
+NODE_ENV=development npm run seed:learning:dev -w @csense/server -- --reset --confirm=csense
+```
+Session length is set with `ASSESSMENT_SESSION_TTL` (default `60m`, range 5m to 4h).
+
 ## Scripts
 | Command | What it does |
 |---|---|

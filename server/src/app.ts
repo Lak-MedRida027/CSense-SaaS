@@ -4,6 +4,7 @@ import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 import type { AppConfig } from './config/appConfig.js';
 import { isDbConnected } from './db/connect.js';
+import { missingLearningIndexes } from './db/learningIndexes.js';
 import { authenticateBearer } from './features/auth/auth.service.js';
 import { FailedLoginFloor, realTiming, type Timing } from './features/auth/failedLoginDelay.js';
 import { initDummyHash, verifyAgainstDummy } from './features/auth/password.js';
@@ -13,28 +14,46 @@ import type { RouteDef } from './http/routeRegistry.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { notFound } from './middleware/notFound.js';
 import { createLimiters } from './middleware/rateLimit.js';
+import type { LearningHooks } from './features/learning/learningHooks.js';
+import type { Shuffle } from './features/learning/shuffle.js';
 import { allRoutes } from './routes.js';
+
+/** Connected, and every unique index the learning engine relies on exists. */
+async function isDatabaseReady(): Promise<boolean> {
+  if (!isDbConnected()) return false;
+  try {
+    return (await missingLearningIndexes()).length === 0;
+  } catch {
+    return false;
+  }
+}
 
 export interface AppOptions {
   logger: Logger;
   config: AppConfig;
   /** Override for readiness checks (tests). Defaults to the Mongoose connection state. */
-  isReady?: () => boolean;
+  isReady?: () => boolean | Promise<boolean>;
   /** Injectable clock so expiry tests need no fake timers. */
   clock?: () => Date;
   /** Extra route definitions appended to the real table (tests). They get the same checks. */
   routes?: RouteDef[];
   /** Test seam for the failed-login response-time floor. */
   timing?: Timing;
+  /** Learning seam for Phase 4 (XP, badges, risk). Defaults to no-ops. */
+  learningHooks?: LearningHooks;
+  /** Test seam for the question-order shuffle. */
+  shuffle?: Shuffle;
 }
 
 export async function createApp({
   logger,
   config,
-  isReady = isDbConnected,
+  isReady = isDatabaseReady,
   clock = () => new Date(),
   routes = [],
   timing,
+  learningHooks,
+  shuffle,
 }: AppOptions): Promise<Express> {
   const app = express();
 
@@ -65,7 +84,10 @@ export async function createApp({
       isReady,
       floor,
       onCredentialsFailure: limiters.onCredentialsFailure,
+      logger,
       ...(timing ? { timing } : {}),
+      ...(learningHooks ? { learningHooks } : {}),
+      ...(shuffle ? { shuffle } : {}),
     }),
     ...routes,
   ];

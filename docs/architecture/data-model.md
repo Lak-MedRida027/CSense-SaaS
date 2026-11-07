@@ -41,10 +41,18 @@ Indexes: `{email:1}` unique · `{role:1,isActive:1}` · `{department:1}`
 | title | String | required, max 200 |
 | description | String | required |
 | content | String | default `''` |
-| videoUrl | String | optional, http(s) URL |
+| videoUrl | String | optional, http(s) URL (authoring requires https) |
+| captionsUrl | String | optional, http(s) URL (WebVTT) |
+| transcript | `{startSeconds int, text}[]` | max 500 cues, `_id: false` |
+| keyTakeaways | String[] | each 1..300, max 10 |
+| exercises | Exercise[] (embedded) | max 20 |
 | format | `video` \| `interactive` | required (U9) |
 | duration | int | required, minutes (U9) |
 | isPublished | Boolean | default `false` |
+
+Embedded **Exercise** (`_id: false`, Phase 3): `exerciseId` (auto ObjectId), `prompt`, optional `artifact` (plain text), `options` (2..6), `correctAnswer` (index; `select: false`), `explanation` (`select: false`).
+
+Publish invariant (`pre('validate')`, only when `isPublished`): a `video` module needs `videoUrl`; an `interactive` module needs at least one exercise.
 
 Indexes: `{order:1}` unique · `{isPublished:1,order:1}`
 
@@ -57,11 +65,15 @@ Index: `{moduleId:1}` **unique** (one badge per module, U5).
 |---|---|---|
 | userId | ObjectId → User | required |
 | moduleId | ObjectId → Module | required |
-| status | `locked` \| `unlocked` \| `in_progress` \| `completed` | default `locked` (U9) |
-| quizScore | int 0-100 | optional |
-| quizPassed | Boolean | default `false` |
-| attempts | int | default 0 |
+| status | `in_progress` \| `completed` | **stored facts only** (ADR 0006); `locked` and `unlocked` are derived by `deriveModuleStates` and never stored |
+| quizScore | int 0-100 | best score (`$max`) |
+| quizPassed | Boolean | default `false`; the first pass sets it together with `completedAt` |
+| attempts | int | submitted + abandoned + expired attempts |
 | completedAt | Date | optional |
+| startedAt | Date | set on insert |
+| contentCompletedAt | Date or null | content gate for the quiz |
+| exerciseAnswers | `{exerciseId, selectedIndex, correct, answeredAt}[]` | first answer per exercise, max 20 |
+| lastAttemptAt | Date or null | |
 
 Indexes: `{userId:1,moduleId:1}` unique · `{moduleId:1,status:1}`
 
@@ -72,11 +84,12 @@ Indexes: `{userId:1,moduleId:1}` unique · `{moduleId:1,status:1}`
 | title | String | required |
 | questions | Question[] (embedded) | at least 1 (`1..*`) |
 | passingScore | int percent 0-100 | default 70 (configurable per assessment) |
+| questionsPerSession | int >= 1 or null | how many questions of the pool a session serves (null serves all); may not exceed the pool. Published content keeps a pool of at least twice this (authoring schema: quiz 5 from 10+, final test 15 from 30+) |
 | moduleId *(Quiz)* | ObjectId → Module | required |
 
 Embedded **Question** (`_id: false`): `questionId` (auto ObjectId), `text` (required),
-`options` (String[], at least 2), `correctAnswer` (**integer index into `options`**, U10;
-`select: false`; must satisfy `0 <= i < options.length`). Any edit that reorders options must remap
+`options` (String[], 2..6, each max 300), `correctAnswer` (**integer index into `options`**, U10;
+`select: false`; must satisfy `0 <= i < options.length`), `explanation` (max 1000, default `''`, `select: false`). `text` max 1000. Any edit that reorders options must remap
 `correctAnswer` (Phase 7).
 
 Indexes: `{kind:1}` · `{moduleId:1}` unique where `kind = Quiz` · `{kind:1}` unique where
@@ -88,12 +101,44 @@ Indexes: `{kind:1}` · `{moduleId:1}` unique where `kind = Quiz` · `{kind:1}` u
 | userId | ObjectId → User | required |
 | type | `Quiz` \| `FinalTest` | required |
 | refId | ObjectId, `refPath: 'type'` | required ("submitted to" one Assessment) |
-| answers | `{questionId, selectedIndex, correct}[]` | required (Answer shape, U3) |
+| answers | `{questionId, selectedIndex int or null, correct}[]` | one per served question, in served order (U3; `null` = unanswered) |
 | score | int 0-100 | required |
 | passed | Boolean | required |
 | attemptedAt | Date | set on create; no `updatedAt` |
+| sessionId | ObjectId → AssessmentSession | required, **unique** |
+| moduleId | ObjectId or null | denormalised; null for the final test |
+| attemptNumber | int >= 1 | per (user, assessment) |
+| endReason | `submitted` \| `abandoned` \| `expired` | required |
+| correctCount, totalCount | int | |
+| passingScore | int 0-100 | snapshot at session start |
 
-Indexes: `{userId:1,refId:1,attemptedAt:-1}` · `{refId:1,passed:1}`
+Indexes: `{userId:1,refId:1,attemptedAt:-1}` · `{refId:1,passed:1}` · `{sessionId:1}` unique · `{userId:1,attemptedAt:-1,_id:-1}` · `{userId:1,refId:1,passed:1}`
+
+Also unique: `{userId:1,refId:1,attemptNumber:1}`.
+
+Append-only (Phase 3): the shared `appendOnly` plugin makes every update, replace and delete path, and any aggregation containing `$merge` or `$out`, throw `QuizAttemptImmutableError`; only `create` and `insertMany` write. The same aggregation guard protects `auditlogs`.
+
+Startup builds and verifies the unique indexes the learning engine relies on (`server/src/db/learningIndexes.ts`); `/health/ready` is `unavailable` while one is missing.
+
+### `assessmentsessions` (AssessmentSession, Phase 3, not in the diagram; ADR 0007)
+| Field | Type | Rules |
+|---|---|---|
+| userId | ObjectId → User | required |
+| kind | `Quiz` \| `FinalTest` | required |
+| assessmentId | ObjectId → Assessment | required |
+| moduleId | ObjectId or null | required for Quiz |
+| status | `open` \| `submitted` \| `abandoned` \| `expired` | default `open` |
+| questions | `{questionId, optionCount, correctAnswer}[]` | served (shuffled) order; `correctAnswer` is a key snapshot, `select: false`; `toJSON` never emits `questions` |
+| attemptNumber | int or null | allocated atomically at start from `attemptcounters` |
+| passingScore | int | snapshot |
+| expiresAt | Date | start + `ASSESSMENT_SESSION_TTL` |
+| closedAt | Date or null | |
+| startedAt | Date | `timestamps: { createdAt: 'startedAt', updatedAt: false }` |
+
+Indexes: `{userId:1,assessmentId:1}` unique where `status = open` (one open session) · TTL `{expiresAt:1}` (30 days past expiry).
+
+### `attemptcounters` (AttemptCounter, Phase 3, not in the diagram)
+Per-(employee, assessment) ledger: `seq` (attempt numbers, atomic `$inc` at session start), `attempts`, `bestScore` and `firstPassAt` (set once by a conditional write, which decides the first pass and fires the completion hooks exactly once), `consecutiveFails` (failure streak, reset by a pass or when a cooldown starts) and `cooldownUntil` (new sessions are refused until then). Unique index `{userId:1,assessmentId:1}`.
 
 ### `riskprofiles` (RiskProfile)
 `userId` → User (required, **unique**), `knowledgeScore`, `behaviouralScore`, `simulationScore`,
@@ -128,7 +173,7 @@ sessions stay available for investigations for a month).
 ### `auditlogs` (AuditLog, Phase 2, append-only; ADR 0005)
 | Field | Type | Rules |
 |---|---|---|
-| action | enum `AUDIT_ACTIONS` (shared) | required: `auth.login.succeeded`, `auth.login.failed`, `auth.login.rate_limited`, `auth.login.account_targeted`, `auth.refresh.reuse_detected`, `auth.refresh.denied`, `auth.logout`, `user.created`, `admin.bootstrapped` (Phase 4 appends risk and escalation actions) |
+| action | enum `AUDIT_ACTIONS` (shared) | required: `auth.login.succeeded`, `auth.login.failed`, `auth.login.rate_limited`, `auth.login.account_targeted`, `auth.refresh.reuse_detected`, `auth.refresh.denied`, `auth.logout`, `user.created`, `admin.bootstrapped`, `learning.seed.reset`, `learning.assessment.cooldown` (Phase 4 appends risk and escalation actions) |
 | outcome | `success` or `failure` | required |
 | severity | `info`, `warning` or `critical` | default `info` |
 | actorId, actorRole | ObjectId or null, Role or null | null when anonymous or system |
@@ -165,4 +210,4 @@ Refresh-token sessions and the append-only audit log were added in Phase 2 (abov
 
 escalations (4) · gate state (5) ·
 onboarding flag (6) · module assignments (7) · phishing outcomes and review cycles (flagged) ·
-interactive exercise data (3/6). See the Phase 0 plan section 3.4.
+(interactive exercise data landed in Phase 3). See the Phase 0 plan section 3.4.

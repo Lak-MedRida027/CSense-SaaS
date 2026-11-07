@@ -82,6 +82,20 @@ export const envSchema = z
     AUTH_FAILED_LOGIN_MIN_MS: z.coerce.number().int().min(0).max(10_000).default(1000),
     AUTH_REFRESH_MAX_PER_IP: positiveInt(30),
     TRUST_PROXY_HOPS: z.coerce.number().int().min(0).max(5).default(0),
+
+    // --- Learning engine (Phase 3, ADR 0007) ---
+    ASSESSMENT_SESSION_TTL: boundedDuration(5 * MINUTE, 4 * HOUR, '60m'),
+    // A hook slower than this is dropped (logged) so a stuck Phase 4 hook cannot hold a response.
+    LEARNING_HOOK_TIMEOUT_MS: z.coerce.number().int().min(100).max(30_000).default(2000),
+    // A start repeated within this many seconds returns the open session instead of replacing it.
+    ASSESSMENT_START_REUSE_SECONDS: z.coerce.number().int().min(0).max(60).default(5),
+    // Per-employee throttle on starting quiz / final-test sessions.
+    // After this many failed attempts in a row at one assessment, new sessions are blocked for
+    // ASSESSMENT_COOLDOWN_MINUTES (abandoned and expired attempts count as failures; a pass resets).
+    ASSESSMENT_COOLDOWN_AFTER_FAILS: positiveInt(3),
+    ASSESSMENT_COOLDOWN_MINUTES: z.coerce.number().int().min(1).max(1440).default(15),
+    SESSION_START_RATE_MAX: positiveInt(10),
+    SESSION_START_RATE_WINDOW_MS: positiveInt(600_000),
   })
   .superRefine((env, ctx) => {
     if (env.JWT_ACCESS_SECRET === env.REFRESH_TOKEN_SECRET) {
@@ -96,18 +110,21 @@ export const envSchema = z
 export type Env = z.infer<typeof envSchema>;
 
 /**
- * Load the repo-root `.env` (if present) without overriding variables already set,
- * then validate. Works whether started from the repo root or from `server/`.
+ * Load the repo-root `.env` (if present) into `process.env` without overriding variables already
+ * set. Works whether started from the repo root or from `server/`.
  */
-export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
-  if (source === process.env) {
-    for (const candidate of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../.env')]) {
-      if (existsSync(candidate)) {
-        process.loadEnvFile(candidate);
-        break;
-      }
+export function loadDotEnvFile(): void {
+  for (const candidate of [resolve(process.cwd(), '.env'), resolve(process.cwd(), '../.env')]) {
+    if (existsSync(candidate)) {
+      process.loadEnvFile(candidate);
+      return;
     }
   }
+}
+
+/** Load `.env` (real environment only), then validate. */
+export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
+  if (source === process.env) loadDotEnvFile();
 
   const parsed = envSchema.safeParse(source);
   if (!parsed.success) {

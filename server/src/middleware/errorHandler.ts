@@ -19,6 +19,7 @@ export function errorHandler(logger: Logger): ErrorRequestHandler {
 
     if (err instanceof HttpError) {
       ({ status, code, message, details } = err);
+      for (const [name, value] of Object.entries(err.headers ?? {})) res.setHeader(name, value);
       if (status === 401 && code === 'UNAUTHENTICATED') {
         res.setHeader('WWW-Authenticate', 'Bearer');
       }

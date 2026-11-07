@@ -11,6 +11,8 @@ export interface Limiters {
   global: RequestHandler;
   login: RequestHandler[];
   refresh: RequestHandler[];
+  /** Per-employee throttle on starting quiz / final-test sessions (runs after the access gate). */
+  sessionStart: RequestHandler[];
   /** Feeds the account-wide counter; called by the login service when it decides a failure. */
   onCredentialsFailure: (email: string) => void;
 }
@@ -219,10 +221,22 @@ export function createLimiters(
     }
   };
 
+  // Keyed by the authenticated employee, not the IP: it bounds the append-only attempt history one
+  // account can create, wherever the requests come from. The access gate has already set the caller.
+  const sessionStart = rateLimit({
+    ...common,
+    windowMs: cfg.sessionStartWindowMs,
+    limit: cfg.sessionStartMax,
+    keyGenerator: (_req, res) =>
+      `user:${(res.locals as { auth?: { userId?: string } | null }).auth?.userId ?? 'anonymous'}`,
+    handler: respond(),
+  });
+
   return {
     global,
     login: [loginPerIp, loginPerAccount],
     refresh: [refreshPerIp],
+    sessionStart: [sessionStart],
     onCredentialsFailure,
   };
 }
