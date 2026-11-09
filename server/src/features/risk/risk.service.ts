@@ -216,6 +216,8 @@ export function createRiskService(deps: RiskServiceDeps): RiskService {
       }
       // Repeated quiz failures are flagged whether or not the profile itself changed.
       await deps.escalations.evaluateCooldowns(userId);
+      // ...and so is an employee who is still unassessed long after their account was created.
+      await deps.escalations.evaluateDisengagement(userId);
       return outcome;
     },
   };

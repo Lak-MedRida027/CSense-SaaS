@@ -178,6 +178,8 @@ describe('loadEnv', () => {
     expect(toAppConfig(loadEnv(base())).governance).toEqual({
       escalateAfterCooldowns: 2,
       cooldownWindowSeconds: 604_800,
+      disengagedAfterDays: 14,
+      requireSecondAdmin: true,
     });
     for (const bad of ['0', '21', '1.5', 'x']) {
       expect(() => loadEnv({ ...base(), ESCALATE_AFTER_COOLDOWNS: bad }), bad).toThrow(
@@ -189,6 +191,23 @@ describe('loadEnv', () => {
         /ESCALATE_COOLDOWN_WINDOW/,
       );
     }
+  });
+
+  it('E4d: DISENGAGED_AFTER_DAYS (1..365, default 14) and ESCALATION_REQUIRE_SECOND_ADMIN (default true)', () => {
+    const cfg = toAppConfig(loadEnv(base())).governance;
+    expect(cfg).toMatchObject({ disengagedAfterDays: 14, requireSecondAdmin: true });
+    expect(loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: '1' }).DISENGAGED_AFTER_DAYS).toBe(1);
+    expect(loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: '365' }).DISENGAGED_AFTER_DAYS).toBe(365);
+    for (const bad of ['0', '366', '1.5', 'x', '-3']) {
+      expect(() => loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: bad }), bad).toThrow(
+        /DISENGAGED_AFTER_DAYS/,
+      );
+    }
+    const off = toAppConfig(loadEnv({ ...base(), ESCALATION_REQUIRE_SECOND_ADMIN: 'false' }));
+    expect(off.governance.requireSecondAdmin).toBe(false);
+    expect(() => loadEnv({ ...base(), ESCALATION_REQUIRE_SECOND_ADMIN: 'no' })).toThrow(
+      /ESCALATION_REQUIRE_SECOND_ADMIN/,
+    );
   });
 
   it('E5: BCRYPT_COST below 12 or above 15 throws; 12 and 13 are accepted', () => {

@@ -164,12 +164,12 @@ reconcile \| critical_event \| model_upgrade \| config_change, refId}`, `compute
 `Employee.totalXP` and `level` are a monotone projection of the attempt history (`computeXp`), never incremented.
 
 ### `escalations` (Escalation, Phase 4, not in the diagram; ADR 0011)
-`userId` (subject), `reason` (`risk_level_high` \| `repeated_assessment_cooldowns` \| `simulation_credentials_submitted` \|
+`userId``repeated_assessment_cooldowns` | `disengaged_unassessed` | (subject), `reason` (`risk_level_high` \| `repeated_assessment_cooldowns` \| `simulation_credentials_submitted` \|
 `gate_access_restricted`), `severity` (`elevated` \| `critical`), `reviewTier` (`security_team` \| `management`), `status`
 (`open` \| `acknowledged` \| `resolved`), `active`, `scopeKey` (`risk`, `assessment:<id>` or null), `dedupeKey` (**unique**),
 `context` (risk snapshot at opening), `sourceRef`, `openedAt`, acknowledge/resolve actor and time, `assigneeId`, `resolution`,
 `managementReference`, `events[]` (`opened`, `retriggered`, `acknowledged`, `note`, `resolved`; max 200; each with an `audited`
-outbox flag), `version`, and the counters `retriggerCount`, `lastRetriggeredAt`, `lastRetriggerRef` (retriggers past the 150-event system budget; 50 slots stay reserved for administrators). Indexes: `{dedupeKey:1}` unique · `{userId:1,reason:1,scopeKey:1}` unique where `active` and
+outbox flag; resolved events also carry `sameAdmin`), `acknowledgedBy` / `resolvedBy` (separation of duties), `version`, and the counters `retriggerCount`, `lastRetriggeredAt`, `lastRetriggerRef` (retriggers past the 150-event system budget; 50 slots stay reserved for administrators). Indexes: `{dedupeKey:1}` unique · `{userId:1,reason:1,scopeKey:1}` unique where `active` and
 `scopeKey` is a string (one active escalation per employee, reason and scope) · `{status:1,severity:1,openedAt:-1}` ·
 `{userId:1,openedAt:-1}` · `{'events.audited':1}`.
 

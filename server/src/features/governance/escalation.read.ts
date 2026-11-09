@@ -51,7 +51,13 @@ export async function toSummaries(rows: readonly EscalationRow[]): Promise<Escal
 export async function toDetail(row: EscalationRow): Promise<EscalationDetailDTO> {
   const [summary] = await toSummaries([row]);
   if (!summary) throw notFoundError();
-  const labels = await loadUserLabels(row.events.flatMap((e) => (e.actorId ? [e.actorId] : [])));
+  const people = [row.acknowledgedBy, row.resolvedBy].flatMap((p) => (p ? [p] : []));
+  const labels = await loadUserLabels([
+    ...row.events.flatMap((e) => (e.actorId ? [e.actorId] : [])),
+    ...people,
+  ]);
+  const who = (id: Types.ObjectId | null | undefined) =>
+    id ? { id: id.toHexString(), name: labels.get(id.toHexString())?.name ?? 'Unknown' } : null;
   const scores = row.context.scores;
   return {
     ...summary,
@@ -80,6 +86,8 @@ export async function toDetail(row: EscalationRow): Promise<EscalationDetailDTO>
     },
     sourceRef: { type: row.sourceRef.type, id: row.sourceRef.id.toHexString() },
     resolution: row.resolution ?? null,
+    acknowledgedBy: who(row.acknowledgedBy),
+    resolvedBy: who(row.resolvedBy),
     managementReference: row.managementReference ?? null,
     events: row.events.map((e) => ({
       eventId: e.eventId.toHexString(),
@@ -95,6 +103,7 @@ export async function toDetail(row: EscalationRow): Promise<EscalationDetailDTO>
           : null,
       fromStatus: e.fromStatus ?? null,
       toStatus: e.toStatus ?? null,
+      sameAdmin: e.sameAdmin === true,
       note: e.note ?? null,
       resolution: e.resolution ?? null,
     })),

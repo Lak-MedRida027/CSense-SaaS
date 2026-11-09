@@ -15,10 +15,24 @@ import {
   type EscalationSourceType,
   type EscalationStatus,
   type FeatureFlags,
+  RISK_LEVELS,
   type RiskLevel,
 } from '@csense/shared';
-import { HttpError, conflict, notFoundError, validation } from '../../lib/httpError.js';
-import { AuditLog, Escalation, numericSeqFilter } from '../../models/index.js';
+import {
+  HttpError,
+  conflict,
+  notFoundError,
+  separationOfDuties,
+  validation,
+} from '../../lib/httpError.js';
+import {
+  AuditLog,
+  Employee,
+  Escalation,
+  Module,
+  RiskProfile,
+  numericSeqFilter,
+} from '../../models/index.js';
 import { audit, type AuditContext, type AuditRecordInput } from '../audit/audit.service.js';
 import type { MarkerService } from '../maintenance/markers.js';
 import type { SecurityTeamNotifier } from './notifier.js';
@@ -36,6 +50,7 @@ export interface EscalationEventRow {
   resolution?: EscalationResolution | null | undefined;
   refId?: Types.ObjectId | null | undefined;
   audited: boolean;
+  sameAdmin?: boolean | undefined;
 }
 
 export interface EscalationRow {
@@ -96,7 +111,12 @@ export interface EscalationServiceDeps {
   logger: Logger;
   notifier: SecurityTeamNotifier;
   features: FeatureFlags;
-  governance: { escalateAfterCooldowns: number; cooldownWindowSeconds: number };
+  governance: {
+    escalateAfterCooldowns: number;
+    cooldownWindowSeconds: number;
+    disengagedAfterDays: number;
+    requireSecondAdmin: boolean;
+  };
   markers: MarkerService;
 }
 
@@ -139,6 +159,16 @@ export interface EscalationService {
   recordCriticalEvent(input: CriticalEventInput): Promise<{ escalationId: string }>;
   /** Open (or retrigger) an escalation for assessments with repeated cooldowns in the window. */
   evaluateCooldowns(userId: string): Promise<string[]>;
+  /**
+   * Flag one active employee who is still "not assessed" DISENGAGED_AFTER_DAYS after their account
+   * was created. At most one such escalation per employee, ever; returns its id or null.
+   */
+  evaluateDisengagement(userId: string): Promise<string | null>;
+  /** One bounded page of the periodic scan (indexed queries only). `next` is null at the end. */
+  scanDisengaged(page: { afterId: string | null; pageSize: number }): Promise<{
+    opened: number;
+    next: string | null;
+  }>;
   transition(
     escalationId: string,
     request: EscalationActionRequest,
@@ -240,9 +270,11 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
         return {
           ...base,
           action: 'escalation.resolved',
-          severity: event.resolution === 'risk_accepted' ? 'warning' : 'info',
+          severity:
+            event.resolution === 'risk_accepted' || event.sameAdmin === true ? 'warning' : 'info',
           metadata: {
             eventId,
+            ...(event.sameAdmin === true ? { sameAdmin: true } : {}),
             from: event.fromStatus ?? null,
             to: event.toStatus ?? null,
             resolution: event.resolution ?? null,
@@ -387,6 +419,73 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       return opened;
     },
 
+    async evaluateDisengagement(userId) {
+      const cutoff = disengagedCutoff();
+      const owner = new Types.ObjectId(userId);
+      const employee = await Employee.findOne({
+        _id: owner,
+        isActive: true,
+        createdAt: trusted({ $lte: cutoff }),
+      })
+        .select('_id')
+        .lean();
+      if (!employee) return null;
+      const dedupeKey = disengagedKey(userId);
+      const existing = await Escalation.findOne({ dedupeKey }).select('_id').lean();
+      if (existing) return null; // opened before: never reopened automatically, never auto-resolved
+      const [assessed, curriculum] = await Promise.all([
+        RiskProfile.exists({ userId: owner, riskLevel: trusted({ $in: [...RISK_LEVELS] }) }),
+        Module.exists({ isPublished: true }),
+      ]);
+      if (assessed || !curriculum) return null;
+      return (await openDisengaged(userId)).escalationId;
+    },
+
+    async scanDisengaged({ afterId, pageSize }) {
+      if (!(await Module.exists({ isPublished: true }))) return { opened: 0, next: null };
+      const users = await Employee.find({
+        isActive: true,
+        createdAt: trusted({ $lte: disengagedCutoff() }),
+        ...(afterId ? { _id: trusted({ $gt: new Types.ObjectId(afterId) }) } : {}),
+      })
+        .sort({ _id: 1 })
+        .limit(pageSize)
+        .select('_id')
+        .lean();
+      const ids = users.map((u) => u._id);
+      if (ids.length === 0) return { opened: 0, next: null };
+      const [assessed, flagged] = await Promise.all([
+        RiskProfile.find({
+          userId: trusted({ $in: ids }),
+          riskLevel: trusted({ $in: [...RISK_LEVELS] }),
+        })
+          .select('userId')
+          .lean(),
+        Escalation.find({
+          dedupeKey: trusted({ $in: ids.map((i) => disengagedKey(i.toHexString())) }),
+        })
+          .select('userId')
+          .lean(),
+      ]);
+      const skip = new Set([...assessed, ...flagged].map((r) => r.userId.toHexString()));
+      let opened = 0;
+      for (const id of ids) {
+        const hex = id.toHexString();
+        if (skip.has(hex)) continue;
+        try {
+          await openDisengaged(hex);
+          opened += 1;
+        } catch (err) {
+          logger.error(
+            { err, userId: hex },
+            'Disengagement escalation failed; the next scan retries',
+          );
+        }
+      }
+      const last = ids.at(-1);
+      return { opened, next: ids.length === pageSize && last ? last.toHexString() : null };
+    },
+
     async transition(escalationId, request, ctx) {
       for (let tries = 1; ; tries += 1) {
         const result = await attemptTransition(escalationId, request, ctx, tries < 5);
@@ -394,6 +493,35 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       }
     },
   };
+
+  /** A refused resolve leaves state alone and is audited as a warning (never with note text). */
+  async function refuseResolve(
+    esc: EscalationRow,
+    request: EscalationActionRequest,
+    ctx: TransitionContext,
+    reason: 'same_admin' | 'not_acknowledged',
+  ): Promise<void> {
+    try {
+      await audit.record({
+        action: 'escalation.resolve_refused',
+        outcome: 'failure',
+        severity: 'warning',
+        actor: { id: ctx.actorId, role: 'administrator' },
+        target: { type: 'escalation', id: esc._id },
+        ctx: { ip: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId },
+        metadata: {
+          reason,
+          escalationSeverity: esc.severity,
+          reviewTier: esc.reviewTier,
+          resolution: request.action === 'resolve' ? request.resolution : null,
+          status: esc.status,
+        },
+      });
+    } catch (err) {
+      // The refusal stands whether or not it could be written down.
+      logger.error({ err, escalationId: esc._id.toHexString() }, 'Refused-resolve audit failed');
+    }
+  }
 
   /** One load, check and conditional write. Notes without expectedVersion retry on a version race. */
   async function attemptTransition(
@@ -405,6 +533,31 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
     {
       const current = await Escalation.findById(escalationId).lean<EscalationRow>();
       if (!current) throw notFoundError();
+
+      // Separation of duties (P4-L8): a critical, management-tier or risk_accepted escalation must be
+      // resolved by a different administrator than the one who acknowledged it.
+      const needsSecondAdmin =
+        request.action === 'resolve' &&
+        (current.severity === 'critical' ||
+          current.reviewTier === 'management' ||
+          request.resolution === 'risk_accepted');
+      const enforceSecondAdmin = needsSecondAdmin && deps.governance.requireSecondAdmin;
+      const acknowledger = current.acknowledgedBy?.toHexString() ?? null;
+      // (Only while the escalation is still open to resolve; a resolved one is a plain state error.)
+      if (
+        enforceSecondAdmin &&
+        current.status !== 'resolved' &&
+        (current.status === 'open' || acknowledger === ctx.actorId)
+      ) {
+        await refuseResolve(
+          current,
+          request,
+          ctx,
+          current.status === 'open' ? 'not_acknowledged' : 'same_admin',
+        );
+        throw separationOfDuties();
+      }
+      const sameAdmin = needsSecondAdmin && !enforceSecondAdmin && acknowledger === ctx.actorId;
 
       const decision = applyEscalationAction(current.status, request.action);
       if (!decision.ok) {
@@ -456,6 +609,7 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
         resolution: request.action === 'resolve' ? request.resolution : null,
         refId: null,
         audited: false,
+        sameAdmin,
       };
       const set: Record<string, unknown> = {};
       if (request.action === 'acknowledge') {
@@ -483,6 +637,8 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
           _id: current._id,
           status: current.status,
           version: current.version,
+          // Enforced in the same conditional write: the acknowledger is never this administrator.
+          ...(enforceSecondAdmin ? { acknowledgedBy: trusted({ $nin: [actorId, null] }) } : {}),
           // Room for one more event, checked by the database as well.
           [`events.${String(ESCALATION_EVENTS_MAX - 1)}`]: trusted({ $exists: false }),
         },
@@ -495,8 +651,17 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       ).lean<EscalationRow>();
 
       if (!updated) {
-        const reloaded = await Escalation.findById(escalationId).select('status version').lean();
+        const reloaded = await Escalation.findById(escalationId)
+          .select('status version acknowledgedBy')
+          .lean();
         if (!reloaded) throw notFoundError();
+        if (
+          enforceSecondAdmin &&
+          (reloaded.acknowledgedBy == null || reloaded.acknowledgedBy.toHexString() === ctx.actorId)
+        ) {
+          await refuseResolve(current, request, ctx, 'same_admin');
+          throw separationOfDuties();
+        }
         // A note is valid in every status, so a status change under it is only a reason to retry.
         if (request.action !== 'note' && reloaded.status !== current.status) {
           throw new HttpError(
@@ -523,6 +688,25 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       }
       return (await Escalation.findById(escalationId).lean<EscalationRow>()) ?? updated;
     }
+  }
+
+  const disengagedKey = (userId: string): string => `disengaged_unassessed:${userId}`;
+  const disengagedCutoff = (): Date =>
+    new Date(clock().getTime() - deps.governance.disengagedAfterDays * 86_400_000);
+
+  function openDisengaged(userId: string): Promise<{ escalationId: string; outcome: OpenOutcome }> {
+    return openOrRetrigger({
+      userId,
+      reason: 'disengaged_unassessed',
+      severity: 'elevated',
+      reviewTier: 'security_team',
+      scopeKey: 'disengaged',
+      dedupeKey: disengagedKey(userId),
+      context: {},
+      sourceRef: { type: 'employee_account', id: userId },
+      openedAt: clock(),
+      retriggerEventId: null,
+    });
   }
 
   async function openOrRetrigger(

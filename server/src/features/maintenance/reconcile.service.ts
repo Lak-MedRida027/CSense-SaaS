@@ -297,7 +297,10 @@ export function createReconcileService(deps: ReconcileDeps): ReconcileService {
 
     // 3b. Cooldown escalations, whether or not the profile drifted: a failure after the profile
     // write must still be repaired here (ADR 0011).
-    if (!dryRun) await deps.escalations.evaluateCooldowns(userId);
+    if (!dryRun) {
+      await deps.escalations.evaluateCooldowns(userId);
+      await deps.escalations.evaluateDisengagement(userId);
+    }
 
     // 4. Audit outbox: escalation events and level changes whose audit entry is missing.
     const unaudited = await Escalation.find({ userId: owner, 'events.audited': false })

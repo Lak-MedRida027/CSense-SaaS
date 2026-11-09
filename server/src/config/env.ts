@@ -119,6 +119,12 @@ export const envSchema = z
     // the same assessment inside the window open an elevated escalation.
     ESCALATE_AFTER_COOLDOWNS: z.coerce.number().int().min(1).max(20).default(2),
     ESCALATE_COOLDOWN_WINDOW: boundedDuration(HOUR, 90 * DAY, '7d'),
+    // An active employee still "not assessed" this many days after their account was created is
+    // flagged to the security team (disengaged_unassessed).
+    DISENGAGED_AFTER_DAYS: z.coerce.number().int().min(1).max(365).default(14),
+    // Critical, management-tier or risk_accepted escalations must be resolved by a different
+    // administrator than the one who acknowledged them. Set false only for single-admin organisations.
+    ESCALATION_REQUIRE_SECOND_ADMIN: booleanFlag.default(true),
   })
   .superRefine((env, ctx) => {
     if (env.JWT_ACCESS_SECRET === env.REFRESH_TOKEN_SECRET) {

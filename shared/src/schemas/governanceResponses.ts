@@ -51,6 +51,8 @@ export const escalationEventSchema = z
       .nullable(),
     fromStatus: z.enum(ESCALATION_STATUSES).nullable(),
     toStatus: z.enum(ESCALATION_STATUSES).nullable(),
+    /** Resolved by the administrator who acknowledged it, where policy normally forbids that. */
+    sameAdmin: z.boolean(),
     note: z.string().nullable(),
     resolution: z.enum(ESCALATION_RESOLUTIONS).nullable(),
   })
@@ -90,6 +92,8 @@ export const escalationDetailSchema = escalationSummarySchema
     sourceRef: z.object({ type: z.enum(ESCALATION_SOURCE_TYPES), id: z.string() }).strict(),
     resolution: z.enum(ESCALATION_RESOLUTIONS).nullable(),
     managementReference: z.string().nullable(),
+    acknowledgedBy: z.object({ id: z.string(), name: z.string() }).strict().nullable(),
+    resolvedBy: z.object({ id: z.string(), name: z.string() }).strict().nullable(),
     events: z.array(escalationEventSchema),
   })
   .strict();

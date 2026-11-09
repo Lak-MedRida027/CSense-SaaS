@@ -1,4 +1,4 @@
-import { Types } from 'mongoose';
+import { Types, trusted } from 'mongoose';
 import {
   RISK_LEVEL_TO_STATE,
   RISK_WEIGHTS_BP,
@@ -40,6 +40,7 @@ interface PersonRow {
   name: string;
   department?: string | null;
   isActive: boolean;
+  createdAt?: Date;
 }
 
 const NOT_ASSESSED: DimensionCoverageMap = {
@@ -49,7 +50,11 @@ const NOT_ASSESSED: DimensionCoverageMap = {
   engagement: 'not_assessed',
 };
 
-function summaryOf(person: PersonRow, profile: ProfileRow | null): RiskProfileSummaryDTO {
+function summaryOf(
+  person: PersonRow,
+  profile: ProfileRow | null,
+  disengaged: ReadonlySet<string>,
+): RiskProfileSummaryDTO {
   const level = profile?.riskLevel ?? null;
   return {
     userId: person._id.toHexString(),
@@ -74,7 +79,22 @@ function summaryOf(person: PersonRow, profile: ProfileRow | null): RiskProfileSu
         }
       : NOT_ASSESSED,
     computedAt: profile?.computedAt ? profile.computedAt.toISOString() : null,
+    unassessedSince: level === null && person.createdAt ? person.createdAt.toISOString() : null,
+    disengaged: disengaged.has(person._id.toHexString()),
   };
+}
+
+/** Employees (of those given) with an active disengagement escalation. */
+async function activeDisengaged(ids: readonly Types.ObjectId[]): Promise<Set<string>> {
+  if (ids.length === 0) return new Set();
+  const rows = await Escalation.find({
+    userId: trusted({ $in: [...ids] }),
+    reason: 'disengaged_unassessed',
+    active: true,
+  })
+    .select('userId')
+    .lean();
+  return new Set(rows.map((r) => r.userId.toHexString()));
 }
 
 const SORTS = {
@@ -124,14 +144,16 @@ export async function listRiskProfiles(query: ListRiskProfilesQuery): Promise<Ri
           { $sort: SORTS[query.sort] },
           { $skip: (query.page - 1) * query.pageSize },
           { $limit: query.pageSize },
-          { $project: { name: 1, department: 1, isActive: 1, p: 1 } },
+          { $project: { name: 1, department: 1, isActive: 1, createdAt: 1, p: 1 } },
         ],
         total: [{ $count: 'n' }],
       },
     },
   ]);
+  const rows = facet?.rows ?? [];
+  const flagged = await activeDisengaged(rows.map((r) => r._id));
   return {
-    items: (facet?.rows ?? []).map((r) => summaryOf(r, r.p ?? null)),
+    items: rows.map((r) => summaryOf(r, r.p ?? null, flagged)),
     page: query.page,
     pageSize: query.pageSize,
     total: facet?.total[0]?.n ?? 0,
@@ -142,7 +164,7 @@ export async function getRiskProfileDetail(userId: string): Promise<RiskProfileD
   const owner = new Types.ObjectId(userId);
   // Employee only: an administrator id (or any unknown id) is a 404.
   const person = await Employee.findById(owner)
-    .select('name department isActive')
+    .select('name department isActive createdAt')
     .lean<PersonRow>();
   if (!person) throw notFoundError();
 
@@ -185,7 +207,7 @@ export async function getRiskProfileDetail(userId: string): Promise<RiskProfileD
 
   return {
     profile: {
-      ...summaryOf(person, profile),
+      ...summaryOf(person, profile, await activeDisengaged([owner])),
       modelVersion: profile?.modelVersion ?? null,
       effectiveWeightsBp: profile?.effectiveWeightsBp
         ? {

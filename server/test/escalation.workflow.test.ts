@@ -94,9 +94,11 @@ describe('escalation workflow (admin)', () => {
   });
 
   it('EW2b: accepting the risk is audited as a warning', async () => {
-    const { admin, path } = await setup();
+    const { t, admin, path } = await setup();
     await admin.patch(path, { action: 'acknowledge', expectedVersion: 0 });
-    await admin.patch(path, {
+    // Separation of duties: risk_accepted needs a different administrator.
+    const second = await adminClient(t.app, creds);
+    await second.patch(path, {
       action: 'resolve',
       expectedVersion: 1,
       resolution: 'risk_accepted',
@@ -167,13 +169,15 @@ describe('escalation workflow (admin)', () => {
       resolution: 'remediated',
       note: 'Handled',
     };
-    const missing = await admin.patch(path, resolve);
+    // Management tier: a different administrator resolves (separation of duties).
+    const admin2 = await adminClient(t.app, creds);
+    const missing = await admin2.patch(path, resolve);
     expect(missing.status).toBe(400);
     expect(missing.body.error.details.issues).toEqual([
       expect.objectContaining({ path: 'managementReference' }),
     ]);
     expect((await Escalation.findById(escalationId).lean())?.status).toBe('acknowledged');
-    const ok = await admin.patch(path, { ...resolve, managementReference: 'MGMT-2026-0042' });
+    const ok = await admin2.patch(path, { ...resolve, managementReference: 'MGMT-2026-0042' });
     expect(ok.status).toBe(200);
     expect(ok.body.managementReference).toBe('MGMT-2026-0042');
     expect(

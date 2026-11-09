@@ -33,6 +33,13 @@ export const invalidRefreshToken = (): HttpError =>
 export const forbidden = (): HttpError =>
   new HttpError(403, 'FORBIDDEN', 'You do not have permission to perform this action');
 
+export const separationOfDuties = (): HttpError =>
+  new HttpError(
+    403,
+    'SEPARATION_OF_DUTIES',
+    'A different administrator must resolve this escalation',
+  );
+
 export const notFoundError = (): HttpError => new HttpError(404, 'NOT_FOUND', 'Resource not found');
 
 export const conflict = (message = 'Resource already exists'): HttpError =>

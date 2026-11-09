@@ -43,6 +43,7 @@ describe('escalation state machine', () => {
       'simulation_credentials_submitted',
       'gate_access_restricted',
       'repeated_assessment_cooldowns',
+      'disengaged_unassessed',
     ]);
   });
 });

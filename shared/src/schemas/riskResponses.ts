@@ -45,6 +45,10 @@ export const riskProfileSummarySchema = z
     scores: riskScoresSchema,
     coverage: riskCoverageSchema,
     computedAt: z.string().nullable(),
+    /** When the employee became (and, if riskLevel is null, still is) unassessed: account creation. */
+    unassessedSince: z.string().nullable(),
+    /** An active disengaged_unassessed escalation exists for this employee. */
+    disengaged: z.boolean(),
   })
   .strict();
 

@@ -71,6 +71,7 @@ enumeration. Stack traces and internal messages are never returned.
 | `RATE_LIMITED` (session routes) | 429 | more than `SESSION_START_RATE_MAX` quiz or final-test session starts per employee per window; `Retry-After` set |
 | `ASSESSMENT_COOLDOWN` | 409 | `ASSESSMENT_COOLDOWN_AFTER_FAILS` consecutive failed attempts at this quiz or final test; sent with `Retry-After` (seconds) and `details: { retryAt }` (ISO time). A pass resets the streak |
 | `CONFLICT` | 409 | unique constraint (email in use), a concurrent quiz-session start that lost the race, or a stale `expectedVersion` on an escalation |
+| `SEPARATION_OF_DUTIES` | 403 | resolving a critical, management-tier or `risk_accepted` escalation by the administrator who acknowledged it, or straight from `open` (a different administrator must acknowledge first). State is unchanged and a warning `escalation.resolve_refused` is audited (no note text). Not enforced when `ESCALATION_REQUIRE_SECOND_ADMIN=false` |
 | `INVALID_STATE_TRANSITION` | 409 | escalation action not allowed in the current status (resolve before acknowledge, acknowledge twice, anything but a note once resolved) |
 | `PAYLOAD_TOO_LARGE` | 413 | body over `JSON_BODY_LIMIT` |
 | `RATE_LIMITED` | 429 | rate limit hit; `Retry-After` and `RateLimit` headers set |
@@ -225,6 +226,10 @@ completes it; the PATCH then answers 500).
 | GET | `/admin/audit-logs` (read-only) | `action, severity, outcome, actorId, targetType, targetId, from, to, before (seq cursor), limit 1-200` | 200 `{ items: AuditLogDTO[], nextCursor }` newest first by `seq` | 400 |
 
 `EscalationSummaryDTO` also carries `retriggerCount` and `lastRetriggeredAt`: once an escalation has 150 events, further cooldown retriggers only move these counters (50 events stay reserved for administrator actions). `managementReference` and notes reject control characters and lone surrogates (400).
+
+`EscalationDetailDTO` also carries `acknowledgedBy` and `resolvedBy` (`{id, name}` or null), and each event a `sameAdmin` flag (true when, with `ESCALATION_REQUIRE_SECOND_ADMIN=false`, the acknowledger resolved an escalation that would otherwise have needed a second administrator; such a resolution is audited as a warning).
+
+**Disengagement (`disengaged_unassessed`, elevated, security team).** An active employee whose profile is still "not assessed" `DISENGAGED_AFTER_DAYS` (default 14, 1-365) days after the account was created is flagged: by a bounded, paged scan in the sweeper, on each risk recompute and in `gamification:reconcile`. One per employee, ever; it is never auto-resolved (not even when the employee becomes assessed) and never reopened after resolution. Deactivated employees and administrators are never flagged. `RiskProfileSummaryDTO` carries `unassessedSince` (account creation while not assessed, else null) and `disengaged` (an active such escalation exists).
 
 Resolutions: `remediated`, `risk_accepted`, `false_positive`, `no_action_required`. Note text is stored on the
 escalation only; audit entries carry its SHA-256 and length. POST, PUT, PATCH and DELETE on

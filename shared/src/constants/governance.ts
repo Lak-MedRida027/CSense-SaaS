@@ -4,6 +4,7 @@ export const ESCALATION_REASONS = [
   'simulation_credentials_submitted',
   'gate_access_restricted',
   'repeated_assessment_cooldowns',
+  'disengaged_unassessed',
 ] as const;
 export type EscalationReason = (typeof ESCALATION_REASONS)[number];
 
@@ -41,6 +42,7 @@ export const ESCALATION_SOURCE_TYPES = [
   'phishing_event',
   'gate_event',
   'audit_entry',
+  'employee_account',
 ] as const;
 export type EscalationSourceType = (typeof ESCALATION_SOURCE_TYPES)[number];
 

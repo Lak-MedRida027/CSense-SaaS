@@ -28,6 +28,8 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
     governance: {
       escalateAfterCooldowns: 2,
       cooldownWindowSeconds: 7 * 86_400,
+      disengagedAfterDays: 14,
+      requireSecondAdmin: true,
       ...governance,
     },
     accessTtlSeconds: 900,

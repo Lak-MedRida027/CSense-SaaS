@@ -8,6 +8,9 @@ const BATCH = 50;
 /** Claims after which a marker is parked: logged once, kept for operators, never claimed again. */
 export const MARKER_MAX_ATTEMPTS = 10;
 const OUTBOX_GRACE_MS = 60_000;
+/** The disengagement scan reads at most SCAN_PAGES x SCAN_PAGE_SIZE employees per sweep. */
+const SCAN_PAGES = 5;
+const SCAN_PAGE_SIZE = 200;
 /** A claimed marker is invisible to other sweepers for this long, even if this one crashes. */
 const LEASE_MS = 60_000;
 const BACKOFF_BASE_MS = 30_000;
@@ -21,6 +24,8 @@ export interface SweepSummary {
   reconciled: number;
   failed: number;
   auditWritten: number;
+  /** Disengagement escalations opened by this sweep's scan. */
+  disengaged: number;
 }
 
 export interface Sweeper {
@@ -47,9 +52,11 @@ export interface SweeperDeps {
 export function createSweeper(deps: SweeperDeps): Sweeper {
   let timer: NodeJS.Timeout | undefined;
   let running = false;
+  /** Where the rolling disengagement scan continues; null starts from the beginning. */
+  let scanCursor: string | null = null;
 
   async function sweepOnce(): Promise<SweepSummary> {
-    const summary: SweepSummary = { reconciled: 0, failed: 0, auditWritten: 0 };
+    const summary: SweepSummary = { reconciled: 0, failed: 0, auditWritten: 0, disengaged: 0 };
     const handled: Types.ObjectId[] = [];
     for (let i = 0; i < BATCH; i += 1) {
       const now = deps.clock();
@@ -106,6 +113,22 @@ export function createSweeper(deps: SweeperDeps): Sweeper {
           deps.logger.error({ err: e, userId }, 'Could not back off reconcile marker');
         });
       }
+    }
+
+    // Time passing is the trigger for disengagement, so it needs a periodic scan: a bounded,
+    // paged read (indexed, no recompute) that continues where the last sweep stopped.
+    try {
+      for (let page = 0; page < SCAN_PAGES; page += 1) {
+        const result = await deps.escalations.scanDisengaged({
+          afterId: scanCursor,
+          pageSize: SCAN_PAGE_SIZE,
+        });
+        summary.disengaged += result.opened;
+        scanCursor = result.next;
+        if (result.next === null) break;
+      }
+    } catch (err) {
+      deps.logger.error({ err }, 'Disengagement scan failed');
     }
 
     const cutoff = new Date(deps.clock().getTime() - OUTBOX_GRACE_MS);

@@ -17,6 +17,7 @@ export const AUDIT_ACTIONS = [
   'escalation.acknowledged',
   'escalation.note_added',
   'escalation.resolved',
+  'escalation.resolve_refused',
   'governance.critical_event_recorded',
   'audit.integrity_checked',
   'maintenance.reconcile_run',

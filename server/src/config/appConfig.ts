@@ -15,6 +15,8 @@ export interface AppConfig {
     /** Cooldowns on one assessment inside the window that open an escalation. */
     escalateAfterCooldowns: number;
     cooldownWindowSeconds: number;
+    disengagedAfterDays: number;
+    requireSecondAdmin: boolean;
   };
   maintenance: {
     /** In-process reconcile sweeper period in seconds; 0 disables it. */
@@ -62,6 +64,8 @@ export function toAppConfig(env: Env): AppConfig {
     governance: {
       escalateAfterCooldowns: env.ESCALATE_AFTER_COOLDOWNS,
       cooldownWindowSeconds: parseDuration(env.ESCALATE_COOLDOWN_WINDOW),
+      disengagedAfterDays: env.DISENGAGED_AFTER_DAYS,
+      requireSecondAdmin: env.ESCALATION_REQUIRE_SECOND_ADMIN,
     },
     maintenance: {
       sweepIntervalSeconds:

@@ -75,6 +75,8 @@ const eventSchema = new Schema(
     resolution: { type: String, enum: [...ESCALATION_RESOLUTIONS, null], default: null },
     refId: { type: Schema.Types.ObjectId, default: null },
     audited: { type: Boolean, default: false },
+    // Resolved by the administrator who acknowledged it, where policy normally forbids that.
+    sameAdmin: { type: Boolean, default: false },
   },
   { _id: false, strict: 'throw' },
 );
