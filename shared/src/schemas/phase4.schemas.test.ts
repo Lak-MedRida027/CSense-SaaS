@@ -118,6 +118,8 @@ describe('response schemas', () => {
       resolvedAt: null,
       assignee: null,
       version: 0,
+      retriggerCount: 0,
+      lastRetriggeredAt: null,
     };
     expect(escalationSummarySchema.safeParse(summary).success).toBe(true);
     expect(

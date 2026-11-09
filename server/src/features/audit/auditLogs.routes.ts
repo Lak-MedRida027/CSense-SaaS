@@ -6,7 +6,7 @@ import {
   type ListAuditLogsQuery,
 } from '@csense/shared';
 import { ADMIN_ONLY, defineRoute, type RouteDef } from '../../http/routeRegistry.js';
-import { AuditLog } from '../../models/index.js';
+import { AuditLog, numericSeqFilter } from '../../models/index.js';
 
 interface AuditRow {
   _id: Types.ObjectId;
@@ -66,10 +66,10 @@ export async function listAuditLogs(query: ListAuditLogsQuery): Promise<AuditLog
       ...(query.to ? { $lte: new Date(query.to) } : {}),
     });
   }
-  filter.seq = trusted({
-    $exists: true,
-    ...(query.before === undefined ? {} : { $lt: query.before }),
-  });
+  filter.seq =
+    query.before === undefined
+      ? numericSeqFilter()
+      : trusted({ $type: 'number', $lt: query.before });
 
   const rows = await AuditLog.find(filter)
     .sort({ seq: -1 })

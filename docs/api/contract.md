@@ -224,6 +224,8 @@ completes it; the PATCH then answers 500).
 | PATCH | `/admin/escalations/:escalationId` | `{action:'acknowledge', expectedVersion, note?}` \| `{action:'note', note, expectedVersion?}` \| `{action:'resolve', expectedVersion, resolution, note, managementReference?}` | 200 `EscalationDetailDTO` | 400 (a management-tier resolve needs `managementReference`), 404, 409 `INVALID_STATE_TRANSITION` / `CONFLICT`, 500 audit failed (state change stands) |
 | GET | `/admin/audit-logs` (read-only) | `action, severity, outcome, actorId, targetType, targetId, from, to, before (seq cursor), limit 1-200` | 200 `{ items: AuditLogDTO[], nextCursor }` newest first by `seq` | 400 |
 
+`EscalationSummaryDTO` also carries `retriggerCount` and `lastRetriggeredAt`: once an escalation has 150 events, further cooldown retriggers only move these counters (50 events stay reserved for administrator actions). `managementReference` and notes reject control characters and lone surrogates (400).
+
 Resolutions: `remediated`, `risk_accepted`, `false_positive`, `no_action_required`. Note text is stored on the
 escalation only; audit entries carry its SHA-256 and length. POST, PUT, PATCH and DELETE on
 `/admin/audit-logs` do not exist (404).
@@ -257,4 +259,4 @@ sweeper) repairs anything a failed hook or audit write left behind. Each one tha
 entry (Phase 2 provides the append-only `AuditLog` model and service). Authentication events
 (login success/failure, refresh-token reuse, logout, user creation, admin bootstrap) are audited too.
 Since Phase 4 the audit log is a keyed hash chain (HMAC-SHA256 with `AUDIT_CHAIN_SECRET`, dense `seq`, ADR 0012);
-`npm run audit:verify -w @csense/server` detects edits, deletions and reordering.
+`npm run audit:verify -w @csense/server` detects edits, deletions and reordering, and also fails on rows with a non-numeric `seq` and on rows without a `seq` dated after the chain started.

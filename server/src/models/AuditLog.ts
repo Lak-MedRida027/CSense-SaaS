@@ -1,4 +1,4 @@
-import { Schema, model, type InferSchemaType } from 'mongoose';
+import { Schema, model, trusted, type InferSchemaType } from 'mongoose';
 import {
   AUDIT_ACTIONS,
   AUDIT_OUTCOMES,
@@ -13,6 +13,13 @@ export const AUDIT_METADATA_MAX_BYTES = 2048;
 export const HASH_PATTERN = /^[0-9a-f]{64}$/;
 /** prevHash of the first chained entry. */
 export const GENESIS_HASH = '0'.repeat(64);
+
+/**
+ * Filter value for "this row is part of the chain": `seq` must be a number. Rows with no `seq`, or
+ * one of another BSON type (planted through the driver), are never read as security evidence and
+ * never become the chain tip.
+ */
+export const numericSeq = (): never => trusted({ $type: 'number' }) as never;
 
 export class AuditLogImmutableError extends Error {
   readonly code = 'AUDIT_LOG_IMMUTABLE';

@@ -3,6 +3,7 @@ import { Types, trusted } from 'mongoose';
 import type { Logger } from 'pino';
 import {
   applyEscalationAction,
+  ESCALATION_ADMIN_RESERVE,
   ESCALATION_EVENTS_MAX,
   type DimensionCoverageMap,
   type EscalationActionRequest,
@@ -17,7 +18,7 @@ import {
   type RiskLevel,
 } from '@csense/shared';
 import { HttpError, conflict, notFoundError, validation } from '../../lib/httpError.js';
-import { AuditLog, Escalation } from '../../models/index.js';
+import { AuditLog, Escalation, numericSeqFilter } from '../../models/index.js';
 import { audit, type AuditContext, type AuditRecordInput } from '../audit/audit.service.js';
 import type { MarkerService } from '../maintenance/markers.js';
 import type { SecurityTeamNotifier } from './notifier.js';
@@ -67,6 +68,9 @@ export interface EscalationRow {
   managementReference?: string | null | undefined;
   events: EscalationEventRow[];
   version: number;
+  retriggerCount?: number | undefined;
+  lastRetriggeredAt?: Date | null | undefined;
+  lastRetriggerRef?: Types.ObjectId | null | undefined;
 }
 
 export interface RiskHighInput {
@@ -126,6 +130,9 @@ const isDuplicateKey = (
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 export const COOLDOWN_SCOPE_PREFIX = 'assessment:';
+
+/** System events (opened, retriggered) stop here; the rest of the cap belongs to administrators. */
+export const SYSTEM_EVENTS_MAX = ESCALATION_EVENTS_MAX - ESCALATION_ADMIN_RESERVE;
 
 export interface EscalationService {
   openForRiskHigh(input: RiskHighInput): Promise<{ escalationId: string; outcome: OpenOutcome }>;
@@ -340,12 +347,15 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       const entries = await AuditLog.find({
         action: 'learning.assessment.cooldown',
         targetId: new Types.ObjectId(userId),
+        seq: numericSeqFilter(),
         createdAt: trusted({ $gte: since }),
       })
         .select('metadata.assessmentId createdAt seq')
-        .sort({ createdAt: 1, _id: 1 })
+        // Newest first, so the cap drops the oldest entries in the window and "latest" is right.
+        .sort({ createdAt: -1, _id: -1 })
         .limit(500)
         .lean<{ _id: Types.ObjectId; metadata?: { assessmentId?: unknown } }[]>();
+      entries.reverse();
 
       const byAssessment = new Map<string, Types.ObjectId[]>();
       for (const entry of entries) {
@@ -379,7 +389,7 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
 
     async transition(escalationId, request, ctx) {
       for (let tries = 1; ; tries += 1) {
-        const result = await attemptTransition(escalationId, request, ctx, tries < 3);
+        const result = await attemptTransition(escalationId, request, ctx, tries < 5);
         if (result !== 'retry') return result;
       }
     },
@@ -487,7 +497,8 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       if (!updated) {
         const reloaded = await Escalation.findById(escalationId).select('status version').lean();
         if (!reloaded) throw notFoundError();
-        if (reloaded.status !== current.status) {
+        // A note is valid in every status, so a status change under it is only a reason to retry.
+        if (request.action !== 'note' && reloaded.status !== current.status) {
           throw new HttpError(
             409,
             'INVALID_STATE_TRANSITION',
@@ -566,14 +577,21 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
           .lean();
         if (!active) throw err;
         escalationId = active._id.toHexString();
+        const at = clock();
+        // System events (opened, retriggered) may only use the budget below the admin reserve, so
+        // an employee who keeps earning cooldowns can never take the room reviewers need.
         const pushed = await Escalation.updateOne(
-          { _id: active._id, 'events.eventId': trusted({ $ne: retrigger }) },
+          {
+            _id: active._id,
+            'events.eventId': trusted({ $ne: retrigger }),
+            [`events.${String(SYSTEM_EVENTS_MAX - 1)}`]: trusted({ $exists: false }),
+          },
           {
             $push: {
               events: {
                 eventId: retrigger,
                 type: 'retriggered',
-                at: clock(),
+                at,
                 refId: retrigger,
                 audited: false,
               },
@@ -581,7 +599,24 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
             $inc: { version: 1 },
           },
         );
-        outcome = pushed.modifiedCount === 1 ? 'retriggered' : 'existing';
+        if (pushed.modifiedCount === 1) {
+          outcome = 'retriggered';
+        } else {
+          // Budget spent: fold the retrigger into counters, once per source (lastRetriggerRef).
+          const counted = await Escalation.updateOne(
+            {
+              _id: active._id,
+              lastRetriggerRef: trusted({ $ne: retrigger }),
+              'events.eventId': trusted({ $ne: retrigger }),
+              [`events.${String(SYSTEM_EVENTS_MAX - 1)}`]: trusted({ $exists: true }),
+            },
+            {
+              $inc: { retriggerCount: 1 },
+              $set: { lastRetriggeredAt: at, lastRetriggerRef: retrigger },
+            },
+          );
+          outcome = counted.modifiedCount === 1 ? 'retriggered' : 'existing';
+        }
       } else {
         throw err;
       }

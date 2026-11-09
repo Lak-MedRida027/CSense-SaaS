@@ -64,6 +64,23 @@ export interface SeedOptions {
   dbName?: string;
 }
 
+/** The audit chain key must not be reused as a JWT secret. Never echoes a value. */
+export function assertChainSecretDistinct(env: {
+  AUDIT_CHAIN_SECRET?: string | undefined;
+  JWT_ACCESS_SECRET?: string | undefined;
+  REFRESH_TOKEN_SECRET?: string | undefined;
+}): void {
+  const chain = env.AUDIT_CHAIN_SECRET;
+  if (chain === undefined) return;
+  for (const key of ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET'] as const) {
+    if (env[key] === chain) {
+      throw new Error(
+        `Invalid environment configuration: AUDIT_CHAIN_SECRET must differ from ${key}`,
+      );
+    }
+  }
+}
+
 export class SeedRefusedError extends Error {
   constructor(reason: string) {
     super(`Refusing to seed: ${reason}`);
@@ -265,6 +282,9 @@ const seedEnvSchema = z.object({
   SEED_ALLOW_REMOTE: z.enum(['true', 'false']).default('false'),
   // Only --reset writes an audit entry, so only --reset needs the chain key.
   AUDIT_CHAIN_SECRET: generatedSecret.optional(),
+  // Read only to enforce that the chain key differs from them (the API enforces this at start-up).
+  JWT_ACCESS_SECRET: z.string().optional(),
+  REFRESH_TOKEN_SECRET: z.string().optional(),
 });
 
 async function main(): Promise<void> {
@@ -275,6 +295,7 @@ async function main(): Promise<void> {
     throw new Error(`Invalid environment configuration: ${keys}`);
   }
   const { MONGODB_URI, NODE_ENV, SEED_ALLOW_REMOTE, AUDIT_CHAIN_SECRET } = parsed.data;
+  assertChainSecretDistinct(parsed.data);
   // All checks run before the database is touched.
   assertSeedEnvironment(NODE_ENV);
   assertLocalMongo(MONGODB_URI, SEED_ALLOW_REMOTE === 'true');

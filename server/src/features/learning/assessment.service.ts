@@ -39,6 +39,7 @@ import { activeCooldown, toFinalTestOverview, toQuizOverview } from './learning.
 import type { AttemptEffects } from './learningHooks.js';
 import { requireModuleAccess } from './modules.service.js';
 import { audit } from '../audit/audit.service.js';
+import { createMarkerService } from '../maintenance/markers.js';
 import {
   allocateAttemptNumber,
   claimFirstPass,
@@ -489,6 +490,8 @@ async function startCooldown(
       actor: { id: userHex, role: 'employee' },
       target: { type: 'user', id: userHex },
       ctx: { requestId: info.requestId },
+      // One entry per cooldown, so a retry or a reconcile rebuild can never double-count it.
+      idempotencyKey: `cooldown:${userHex}:${assessmentHex}:${String(attemptNumber)}`,
       metadata: {
         assessmentId: assessmentHex,
         kind: session.kind,
@@ -500,6 +503,8 @@ async function startCooldown(
     });
   } catch (err) {
     deps.logger.error({ err, requestId: info.requestId }, 'Cooldown audit entry failed');
+    // Risk and governance read this entry. Reconcile rebuilds it from the attempt history.
+    await createMarkerService({ logger: deps.logger }).mark(userHex, 'audit');
   }
 }
 

@@ -62,3 +62,10 @@ Adopt option 3 now; plan option 4 as a Phase 10 hardening.
 - `createdAt` is a plain required field set by the service (Mongoose `timestamps` is off for this model), so the stored value is exactly the hashed value.
 - Sequence collisions between writers are retried up to 10 times with a short random back-off.
 - `AUDIT_CHAIN_SECRET` is removed from `process.env` by the API after start-up (`scrubServerSecrets`, together with the two JWT secrets).
+
+## Amendments (security review, Phase 4)
+- **Only numeric `seq` counts (P4-L1, P4-L2).** The tip read, the verifier, the admin audit-log list and every security-relevant read (risk facts, cooldown escalations) filter on `seq` being a number. A planted row with another type can neither become the tip nor stop later writes. `audit:verify` reports it as a break (`non_numeric_seq`).
+- **Unchained rows (P4-L1).** `audit:verify` fails (`unchained_after_chain`) for any row without a `seq` dated at or after the first chained row. Only older such rows are reported separately as `unchainedLegacy`. Rows are never trusted as evidence by risk or governance without a `seq`. (A forger can still backdate a row to look like legacy, but such a row is ignored everywhere.)
+- **Canonical metadata (P4-L3, P4-L6).** ObjectIds and Dates are passed through the sanitiser and stored as hex and ISO strings; any other non-plain object is refused. Strings and keys that are not well-formed Unicode are refused before a `seq` is taken. Request-derived text (ip, user agent, request id) is normalised (lone surrogate to U+FFFD) instead of refused, so a login can never fail on it.
+- **Write timeout.** A write holds the mutex for at most 10 s (`writeTimeoutMs`); on timeout that write fails (login fails closed as before) and the queue is released.
+- **`at`.** Trusted server code (reconcile) may date a rebuilt entry; the value is hashed like any other field.

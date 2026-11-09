@@ -40,6 +40,7 @@ export async function loadXpFacts(userId: string): Promise<XpFacts> {
   const [rows, progress] = await Promise.all([
     QuizAttempt.find({ userId: owner })
       .select('type refId moduleId attemptNumber endReason score passed attemptedAt')
+      .sort({ _id: 1 })
       .limit(MAX_ATTEMPTS)
       .lean<AttemptRow[]>(),
     UserProgress.find({ userId: owner }).select('moduleId exerciseAnswers').lean(),

@@ -1,13 +1,14 @@
-import { Types, trusted } from 'mongoose';
-import type {
-  AuditAction,
-  AuditOutcome,
-  AuditSeverity,
-  AuditTargetType,
-  Role,
+import { Types } from 'mongoose';
+import {
+  isWellFormedString,
+  type AuditAction,
+  type AuditOutcome,
+  type AuditSeverity,
+  type AuditTargetType,
+  type Role,
 } from '@csense/shared';
 import { Mutex } from '../../lib/mutex.js';
-import { AuditLog, GENESIS_HASH } from '../../models/AuditLog.js';
+import { AuditLog, GENESIS_HASH, numericSeq } from '../../models/AuditLog.js';
 import { canonicalEntry, hmacHex, type ChainFields } from './chain.js';
 
 /** Request-derived context attached to audit entries. */
@@ -27,6 +28,11 @@ export interface AuditRecordInput {
   metadata?: Record<string, unknown>;
   /** A second write with the same key returns the first entry instead of adding another. */
   idempotencyKey?: string;
+  /**
+   * When the event happened, for entries rebuilt after the fact (reconcile). Defaults to now. It is
+   * hashed like any other field; only trusted server code sets it.
+   */
+  at?: Date;
 }
 
 export interface AuditRecordResult {
@@ -42,12 +48,23 @@ export interface AuditService {
 
 const SECRET_KEY = /pass|token|secret|hash/i;
 
-/** Drops secret-looking keys at any depth. Values are never inspected, only key names. */
+const isPlainObject = (value: object): boolean => {
+  const proto = Object.getPrototypeOf(value) as unknown;
+  return proto === Object.prototype || proto === null;
+};
+
+/**
+ * Drops secret-looking keys at any depth. Values are never inspected, only key names. Dates and
+ * ObjectIds pass through untouched for `toJsonValue` to canonicalise; any other object that is not
+ * plain (a Map, a class instance, a Buffer) is refused rather than walked.
+ */
 export function sanitizeMetadata(value: unknown, depth = 0): unknown {
   if (Array.isArray(value)) {
     return depth > 4 ? [] : value.map((v) => sanitizeMetadata(v, depth + 1));
   }
-  if (typeof value === 'object' && value !== null && !(value instanceof Date)) {
+  if (typeof value === 'object' && value !== null) {
+    if (value instanceof Date || value instanceof Types.ObjectId) return value;
+    if (!isPlainObject(value)) throw new TypeError('audit metadata must be plain JSON values');
     if (depth > 4) return {};
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value)) {
@@ -59,8 +76,9 @@ export function sanitizeMetadata(value: unknown, depth = 0): unknown {
 }
 
 /**
- * Reduce metadata to plain JSON (ADR 0012): Dates become ISO strings, undefined object values are
- * dropped, and anything that cannot be hashed identically after a database round trip is refused.
+ * Reduce metadata to plain JSON (ADR 0012): Dates become ISO strings, ObjectIds hex strings,
+ * undefined object values are dropped, and anything that cannot be hashed identically after a
+ * database round trip is refused (non-finite numbers, lone surrogates, non-plain objects).
  */
 export function toJsonValue(value: unknown): unknown {
   if (value === null) return null;
@@ -68,6 +86,10 @@ export function toJsonValue(value: unknown): unknown {
   if (value instanceof Types.ObjectId) return value.toHexString();
   switch (typeof value) {
     case 'string':
+      if (!isWellFormedString(value)) {
+        throw new TypeError('audit metadata strings must be well-formed Unicode');
+      }
+      return value;
     case 'boolean':
       return value;
     case 'number':
@@ -75,8 +97,12 @@ export function toJsonValue(value: unknown): unknown {
       return value;
     case 'object': {
       if (Array.isArray(value)) return value.map((v) => (v === undefined ? null : toJsonValue(v)));
+      if (!isPlainObject(value)) throw new TypeError('audit metadata must be plain JSON values');
       const out: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value)) {
+        if (!isWellFormedString(k)) {
+          throw new TypeError('audit metadata keys must be well-formed Unicode');
+        }
         if (v !== undefined) out[k] = toJsonValue(v);
       }
       return out;
@@ -84,6 +110,28 @@ export function toJsonValue(value: unknown): unknown {
     default:
       throw new TypeError('audit metadata must be JSON values');
   }
+}
+
+/** Request-derived text is normalised (a lone surrogate becomes U+FFFD) rather than refused. */
+const contextText = (value: string | undefined, max: number): string | null =>
+  value === undefined ? null : toWellFormed(value.slice(0, max));
+
+function toWellFormed(value: string): string {
+  if (isWellFormedString(value)) return value;
+  let out = '';
+  for (let i = 0; i < value.length; i += 1) {
+    const code = value.charCodeAt(i);
+    const next = value.charCodeAt(i + 1);
+    if (code >= 0xd800 && code <= 0xdbff && next >= 0xdc00 && next <= 0xdfff) {
+      out += value.slice(i, i + 2);
+      i += 1;
+    } else if (code >= 0xd800 && code <= 0xdfff) {
+      out += '�';
+    } else {
+      out += value.charAt(i);
+    }
+  }
+  return out;
 }
 
 const toHex = (id: string | Types.ObjectId): string =>
@@ -103,10 +151,15 @@ const sleep = (ms: number): Promise<void> =>
 /** Writers in this process share one mutex unless a test hands in its own. */
 const processMutex = new Mutex();
 
+/** One audit write (tip read plus insert) that takes longer than this is abandoned and fails. */
+export const DEFAULT_WRITE_TIMEOUT_MS = 10_000;
+
 export interface AuditServiceDeps {
   chainSecret: string;
   clock?: () => Date;
   mutex?: Mutex;
+  /** Per-write time limit while holding the mutex (default 10 s). */
+  writeTimeoutMs?: number;
 }
 
 /**
@@ -131,7 +184,7 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
         if (prior) return prior;
       }
       const base: Omit<ChainFields, 'seq' | 'prevHash'> = {
-        createdAt: clock(),
+        createdAt: input.at ?? clock(),
         action: input.action,
         outcome: input.outcome,
         severity: input.severity ?? 'info',
@@ -139,16 +192,17 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
         actorRole: input.actor?.role ?? null,
         targetType: input.target?.type ?? null,
         targetId: input.target ? toHex(input.target.id) : null,
-        ip: input.ctx?.ip?.slice(0, 64) ?? null,
-        userAgent: input.ctx?.userAgent?.slice(0, 256) ?? null,
-        requestId: input.ctx?.requestId?.slice(0, 64) ?? null,
+        ip: contextText(input.ctx?.ip, 64),
+        userAgent: contextText(input.ctx?.userAgent, 256),
+        requestId: contextText(input.ctx?.requestId, 64),
         idempotencyKey: key,
         metadata: toJsonValue(sanitizeMetadata(input.metadata ?? {})),
       };
 
       return mutex.run(async () => {
         for (let attempt = 0; attempt < MAX_SEQ_RETRIES; attempt += 1) {
-          const tip = await AuditLog.findOne({ seq: trusted({ $exists: true }) })
+          // Only numeric sequence numbers count: a planted row with another type must not become the tip.
+          const tip = await AuditLog.findOne({ seq: numericSeq() })
             .sort({ seq: -1 })
             .select('seq hash')
             .lean();
@@ -189,7 +243,7 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
           }
         }
         throw new Error('Audit log is busy: could not append after several attempts');
-      });
+      }, deps.writeTimeoutMs ?? DEFAULT_WRITE_TIMEOUT_MS);
     },
   };
 }

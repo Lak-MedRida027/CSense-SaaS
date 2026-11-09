@@ -120,6 +120,10 @@ const escalationSchema = new Schema(
       },
     },
     version: { type: Number, min: 0, default: 0, validate: intValidator },
+    // Retriggers beyond the system-event budget are folded into these (no event, no growth).
+    retriggerCount: { type: Number, min: 0, default: 0, validate: intValidator },
+    lastRetriggeredAt: { type: Date, default: null },
+    lastRetriggerRef: { type: Schema.Types.ObjectId, default: null },
   },
   { ...baseSchemaOptions, collection: 'escalations' },
 );

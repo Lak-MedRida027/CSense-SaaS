@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Types } from 'mongoose';
 import type { AttemptEndReason, RiskFacts } from '@csense/shared';
-import { AuditLog, FinalTest, QuizAttempt } from '../../models/index.js';
+import { AuditLog, FinalTest, QuizAttempt, numericSeqFilter } from '../../models/index.js';
 import { stableStringify } from '../audit/chain.js';
 import { curriculumFor } from '../learning/curriculum.service.js';
 
@@ -36,12 +36,18 @@ export async function loadRiskFacts(
       .select(
         'type refId moduleId attemptNumber endReason passed correctCount totalCount attemptedAt',
       )
+      .sort({ _id: 1 })
       .limit(MAX_ATTEMPTS)
       .lean<AttemptRow[]>(),
     FinalTest.exists({}),
-    AuditLog.find({ action: 'learning.assessment.cooldown', targetId: owner })
+    AuditLog.find({
+      action: 'learning.assessment.cooldown',
+      targetId: owner,
+      // Only chained entries count: a row without a numeric seq is not evidence.
+      seq: numericSeqFilter(),
+    })
       .select('metadata.assessmentId createdAt')
-      .sort({ createdAt: 1 })
+      .sort({ createdAt: -1, _id: -1 })
       .limit(MAX_COOLDOWNS)
       .lean<{ metadata?: { assessmentId?: unknown }; createdAt: Date }[]>(),
   ]);
@@ -71,7 +77,7 @@ export async function loadRiskFacts(
       finalTestExists: finalExists !== null,
       finalTestPassed,
     },
-    cooldowns: cooldownRows.map((c) => ({
+    cooldowns: [...cooldownRows].reverse().map((c) => ({
       assessmentId: typeof c.metadata?.assessmentId === 'string' ? c.metadata.assessmentId : '',
       at: c.createdAt.toISOString(),
     })),

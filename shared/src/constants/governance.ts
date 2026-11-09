@@ -46,4 +46,9 @@ export type EscalationSourceType = (typeof ESCALATION_SOURCE_TYPES)[number];
 
 export const ESCALATION_NOTE_MAX = 2000;
 export const ESCALATION_EVENTS_MAX = 200;
+/**
+ * Events kept free for administrators. System events (opened, retriggered) stop at
+ * ESCALATION_EVENTS_MAX - ESCALATION_ADMIN_RESERVE; later retriggers only move counters.
+ */
+export const ESCALATION_ADMIN_RESERVE = 50;
 export const ESCALATION_REFERENCE_MAX = 200;

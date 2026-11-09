@@ -12,6 +12,7 @@ export * from './constants/gamification.js';
 export * from './constants/governance.js';
 
 export * from './schemas/common.js';
+export * from './schemas/text.js';
 export * from './schemas/auth.js';
 export * from './schemas/users.js';
 export * from './schemas/learning.js';

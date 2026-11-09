@@ -179,10 +179,17 @@ describe('audit hash chain (ADR 0012)', () => {
       outcome: 'success',
       severity: 'info',
       metadata: {},
-      createdAt: new Date(),
+      createdAt: new Date(0), // older than the chain: genuine pre-Phase-4 legacy
     });
     const result = await verifyCli({ secret: testChainSecret });
-    expect(result).toMatchObject({ ok: true, checked: 2, tipSeq: 2, unchainedLegacy: 1 });
+    expect(result).toMatchObject({
+      ok: true,
+      checked: 2,
+      tipSeq: 2,
+      unchainedLegacy: 1,
+      unchainedAfterChain: 0,
+      nonNumericSeq: 0,
+    });
 
     const recorded = await verifyAndRecord({ secret: testChainSecret });
     expect(recorded.ok).toBe(true);

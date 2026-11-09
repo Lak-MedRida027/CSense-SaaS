@@ -66,6 +66,10 @@ export function createGamificationServices(deps: GamificationDeps): Gamification
     risk,
     escalations,
     phishingEnabled: config.features.phishing,
+    cooldown: {
+      afterFails: config.learning.cooldownAfterFails,
+      minutes: config.learning.cooldownMinutes,
+    },
   });
   const sweeper = createSweeper({ logger, clock, reconcile, escalations });
   const hooks = createLearningEffects({ xp, badges, risk, markers, logger });

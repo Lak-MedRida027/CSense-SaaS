@@ -8,27 +8,18 @@ import {
 } from '../constants/governance.js';
 import { objectIdSchema } from './common.js';
 import { paginationShape } from './risk.js';
+import { isCleanText } from './text.js';
 
 const idSchema = objectIdSchema.transform((v) => v.toLowerCase());
 
 export const escalationParamsSchema = z.object({ escalationId: idSchema }).strict();
-
-/** Control characters other than newline and tab are rejected (log injection, display tricks). */
-const hasOnlyAllowedChars = (value: string): boolean => {
-  for (let i = 0; i < value.length; i += 1) {
-    const code = value.charCodeAt(i);
-    if (code === 0x0a || code === 0x09) continue;
-    if (code < 0x20 || code === 0x7f) return false;
-  }
-  return true;
-};
 
 export const escalationNoteSchema = z
   .string()
   .trim()
   .min(1)
   .max(ESCALATION_NOTE_MAX)
-  .refine(hasOnlyAllowedChars, { message: 'contains control characters' });
+  .refine(isCleanText, { message: 'contains control characters or invalid characters' });
 
 const expectedVersion = z.int().min(0).max(1_000_000);
 
@@ -53,7 +44,13 @@ export const escalationActionRequestSchema = z.discriminatedUnion('action', [
       expectedVersion,
       resolution: z.enum(ESCALATION_RESOLUTIONS),
       note: escalationNoteSchema,
-      managementReference: z.string().trim().min(1).max(ESCALATION_REFERENCE_MAX).optional(),
+      managementReference: z
+        .string()
+        .trim()
+        .min(1)
+        .max(ESCALATION_REFERENCE_MAX)
+        .refine(isCleanText, { message: 'contains control characters or invalid characters' })
+        .optional(),
     })
     .strict(),
 ]);

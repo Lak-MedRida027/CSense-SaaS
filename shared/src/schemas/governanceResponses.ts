@@ -34,6 +34,9 @@ export const escalationSummarySchema = z
     resolvedAt: z.string().nullable(),
     assignee: z.object({ id: z.string(), name: z.string() }).strict().nullable(),
     version: z.number().int().min(0),
+    /** Cooldowns folded into counters once the system-event budget is spent. */
+    retriggerCount: z.number().int().min(0),
+    lastRetriggeredAt: z.string().nullable(),
   })
   .strict();
 

@@ -42,6 +42,8 @@ export async function toSummaries(rows: readonly EscalationRow[]): Promise<Escal
         ? { id: r.assigneeId.toHexString(), name: assignee?.name ?? 'Unknown' }
         : null,
       version: r.version,
+      retriggerCount: r.retriggerCount ?? 0,
+      lastRetriggeredAt: iso(r.lastRetriggeredAt),
     };
   });
 }
