@@ -368,6 +368,61 @@ describe('start/submit race around the reservation (review fixes)', () => {
     expect(ledger).toMatchObject({ seq: 1, attempts: 0, consecutiveFails: 0, cooldownUntil: null });
   });
 
+  it('(c) a closer holding a stale unnumbered snapshot cannot silently drop a session that was numbered and served meanwhile', async () => {
+    const t = await buildTestApp({ learning: { cooldownAfterFails: 3, cooldownMinutes: 15 } });
+    const c = await createCurriculum({ count: 1 });
+    const m1 = need(c.modules[0]);
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    // The session as the closer reads it: open and still unnumbered.
+    const planted = await plantUnnumbered(emp.id, m1, c.keys, t.clock());
+
+    // Between the closer's read and its update, the start that created the session numbers it
+    // (and, in real life, returns its questions to the client).
+    const original = AssessmentSession.updateOne.bind(AssessmentSession) as (
+      ...a: unknown[]
+    ) => unknown;
+    let raced = false;
+    vi.spyOn(AssessmentSession, 'updateOne').mockImplementation(((
+      filter: Record<string, unknown>,
+      ...rest: unknown[]
+    ) => {
+      const closing = (rest[0] as { $set?: { status?: string } } | undefined)?.$set?.status;
+      if (!raced && String(filter._id) === planted.id && closing === 'abandoned') {
+        raced = true;
+        return (async () => {
+          await AssessmentSession.collection.updateOne(
+            { _id: planted._id },
+            { $set: { attemptNumber: 1 } },
+          );
+          await AttemptCounter.updateOne(
+            { userId: emp.id, assessmentId: m1.quizId },
+            { $set: { seq: 1 } },
+            { upsert: true },
+          );
+          return original(filter, ...rest);
+        })();
+      }
+      return original(filter, ...rest);
+    }) as never);
+
+    // A second start closes the "unnumbered" open session (restart-over-open).
+    const start = await startQuiz(emp, m1.id);
+    vi.restoreAllMocks();
+    expect(raced).toBe(true);
+    expect(start.res.status).toBe(201);
+
+    // The numbered, served session became a real attempt and counted as a failure.
+    const attempts = await QuizAttempt.find({ userId: emp.id }).lean();
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]).toMatchObject({ attemptNumber: 1, endReason: 'abandoned', passed: false });
+    expect(String(attempts[0]?.sessionId)).toBe(planted.id);
+    expect((await AssessmentSession.findById(planted.id).lean())?.status).toBe('abandoned');
+    const ledger = await AttemptCounter.findOne({ assessmentId: m1.quizId }).lean();
+    expect(ledger).toMatchObject({ attempts: 1, consecutiveFails: 1 });
+    expect(start.session.attemptNumber).toBe(2);
+  });
+
   it('(c) expiry of an unnumbered session writes no attempt either', async () => {
     const t = await buildTestApp({ learning: { sessionTtlSeconds: 300 } });
     const c = await createCurriculum({ count: 1 });

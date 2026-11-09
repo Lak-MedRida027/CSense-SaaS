@@ -262,21 +262,29 @@ export async function startSession(
   const winner = rivals[0];
   if (winner && !winner._id.equals(session._id)) {
     await AssessmentSession.updateOne(
-      { _id: session._id, status: 'open' },
+      { _id: session._id, status: 'open', attemptNumber: null },
       { $set: { status: 'abandoned', closedAt: now } },
     );
     throw conflict('A session for this assessment was just started');
   }
   if (rivals.length > 1) {
-    await AssessmentSession.updateMany(
-      {
-        userId: owner,
-        assessmentId: assessmentOid,
-        status: 'open',
-        _id: trusted({ $ne: session._id }),
-      },
-      { $set: { status: 'abandoned', closedAt: now } },
-    );
+    // Other open sessions can only exist if the unique index was missing. A rival may already be
+    // numbered and served, so it is closed through the normal path (an unnumbered one silently, a
+    // numbered one as a recorded abandoned attempt), never by a blind update.
+    const others = await AssessmentSession.find({
+      userId: owner,
+      assessmentId: assessmentOid,
+      status: 'open',
+      _id: trusted({ $ne: session._id }),
+    }).lean<SessionRecord[]>();
+    for (const rival of others) {
+      await finalizeSession(
+        deps,
+        rival,
+        { endReason: 'abandoned', graded: null, guardExpiry: false },
+        info,
+      );
+    }
   }
 
   // The attempt number is reserved only now that this start owns the one open session (P3-L11),
@@ -290,7 +298,7 @@ export async function startSession(
   });
   if ('blockedUntil' in reservation) {
     await AssessmentSession.updateOne(
-      { _id: session._id, status: 'open' },
+      { _id: session._id, status: 'open', attemptNumber: null },
       { $set: { status: 'abandoned', closedAt: now } },
     );
     throw assessmentCooldown(reservation.blockedUntil, now);
@@ -513,11 +521,19 @@ async function finalizeSession(
   // Closing it, for any reason, is therefore not an attempt: no number is drawn, no attempt is
   // written, and the failure streak and cooldown are left alone. It is only marked closed.
   if (session.attemptNumber == null) {
-    await AssessmentSession.updateOne(
-      { _id: session._id, userId: session.userId, status: 'open' },
+    const silent = await AssessmentSession.updateOne(
+      { _id: session._id, userId: session.userId, status: 'open', attemptNumber: null },
       { $set: { status: 'abandoned', closedAt: now } },
     );
-    return null;
+    if (silent.matchedCount === 1) return null;
+    // The start numbered (and served) the session after this snapshot was read, or somebody closed
+    // it. Decide from the current document, never from the stale snapshot: a numbered session is a
+    // real attempt and takes the normal path below.
+    const fresh = await AssessmentSession.findOne({ _id: session._id, userId: session.userId })
+      .select('+questions.correctAnswer')
+      .lean<SessionRecord>();
+    if (fresh?.status !== 'open' || fresh.attemptNumber == null) return null;
+    session = fresh;
   }
   const claim = await AssessmentSession.findOneAndUpdate(
     {
@@ -547,7 +563,8 @@ async function finalizeSession(
   const assessmentHex = session.assessmentId.toHexString();
 
   // The number was reserved atomically when the session started (P3-L2).
-  let attemptNumber = session.attemptNumber;
+  if (session.attemptNumber == null) return null; // unreachable: handled above
+  let attemptNumber: number = session.attemptNumber;
   const insertAttempt = async (): Promise<AttemptRecord> => {
     const created = await QuizAttempt.create({
       userId: session.userId,
