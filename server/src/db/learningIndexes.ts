@@ -6,6 +6,11 @@ import {
   Module,
   QuizAttempt,
   UserProgress,
+  AuditLog,
+  BadgeAward,
+  Escalation,
+  ReconcileMarker,
+  RiskProfile,
 } from '../models/index.js';
 
 /**
@@ -34,6 +39,14 @@ export const REQUIRED_LEARNING_INDEXES: readonly RequiredIndex[] = [
   required(QuizAttempt, 'sessionId_1'),
   required(QuizAttempt, 'attempt_number_unique'),
   required(AttemptCounter, 'userId_1_assessmentId_1'),
+  // Phase 4: exactly-once awards, one profile per employee, the audit chain and escalation dedupe.
+  required(BadgeAward, 'userId_1_badgeId_1'),
+  required(RiskProfile, 'userId_1'),
+  required(ReconcileMarker, 'userId_1'),
+  required(Escalation, 'dedupeKey_1'),
+  required(Escalation, 'active_scope_unique'),
+  required(AuditLog, 'seq_1'),
+  required(AuditLog, 'idempotencyKey_1'),
 ];
 
 interface IndexDefinition {

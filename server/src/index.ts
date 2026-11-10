@@ -3,7 +3,8 @@ import { toAppConfig } from './config/appConfig.js';
 import { loadEnv } from './config/env.js';
 import { connectDb, disconnectDb } from './db/connect.js';
 import { ensureLearningIndexes } from './db/learningIndexes.js';
-import { scrubBootstrapEnv } from './config/scrubEnv.js';
+import { scrubBootstrapEnv, scrubServerSecrets } from './config/scrubEnv.js';
+import type { GamificationServices } from './features/gamification/services.js';
 import { createLogger } from './lib/logger.js';
 
 async function main(): Promise<void> {
@@ -22,13 +23,19 @@ async function main(): Promise<void> {
   // The learning engine's correctness rests on unique indexes: build and verify them, or refuse to start.
   await ensureLearningIndexes();
 
-  const app = await createApp({ logger, config: toAppConfig(env) });
+  const config = toAppConfig(env);
+  // The secrets now live in the config only; keep them out of the process environment.
+  scrubServerSecrets(process.env);
+  const app = await createApp({ logger, config });
+  const gamification = app.locals.gamification as GamificationServices;
+  gamification.sweeper.start(config.maintenance.sweepIntervalSeconds);
   const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'CSense API listening');
   });
 
   const shutdown = (signal: string): void => {
     logger.info({ signal }, 'Shutting down');
+    gamification.sweeper.stop();
     server.close(() => {
       void disconnectDb().finally(() => process.exit(0));
     });

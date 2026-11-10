@@ -8,6 +8,7 @@ const base = (): Record<string, string> => ({
   MONGODB_URI: 'mongodb://127.0.0.1:27017/csense',
   JWT_ACCESS_SECRET: randomSecret(),
   REFRESH_TOKEN_SECRET: randomSecret(),
+  AUDIT_CHAIN_SECRET: randomSecret(),
 });
 
 const messageOf = (source: Record<string, string>): string => {
@@ -42,6 +43,9 @@ describe('loadEnv', () => {
       AUTH_FAILED_LOGIN_MIN_MS: 1000,
       AUTH_REFRESH_MAX_PER_IP: 30,
       TRUST_PROXY_HOPS: 0,
+      RECONCILE_SWEEP_INTERVAL: '5m',
+      ESCALATE_AFTER_COOLDOWNS: 2,
+      ESCALATE_COOLDOWN_WINDOW: '7d',
     });
   });
 
@@ -86,7 +90,7 @@ describe('loadEnv', () => {
   });
 
   it('E3b [P2-L4]: secrets must look generated: charset, length and distinct characters', () => {
-    const keys = ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET'] as const;
+    const keys = ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET', 'AUDIT_CHAIN_SECRET'] as const;
     const weak: [string, string][] = [
       ['repeated single character', 'a'.repeat(64)],
       ['repeated short phrase', 'abcdefgh'.repeat(8)],
@@ -141,6 +145,69 @@ describe('loadEnv', () => {
     const message = messageOf({ ...base(), JWT_ACCESS_SECRET: same, REFRESH_TOKEN_SECRET: same });
     expect(message).toMatch(/must differ/);
     expect(message).not.toContain(same);
+  });
+
+  it('E4b: AUDIT_CHAIN_SECRET is required, generated-looking and distinct from the other secrets', () => {
+    const { AUDIT_CHAIN_SECRET: _a, ...without } = base();
+    expect(() => loadEnv(without)).toThrow(/AUDIT_CHAIN_SECRET/);
+    for (const other of ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET'] as const) {
+      const b = base();
+      const shared = b[other] ?? '';
+      const message = messageOf({ ...b, AUDIT_CHAIN_SECRET: shared });
+      expect(message).toMatch(/AUDIT_CHAIN_SECRET: must differ from/);
+      expect(message).not.toContain(shared);
+    }
+    expect(toAppConfig(loadEnv(base())).audit.chainSecret.length).toBeGreaterThanOrEqual(43);
+  });
+
+  it('E4c: RECONCILE_SWEEP_INTERVAL accepts 0 and 1m..1h; ESCALATE_* have bounds', () => {
+    for (const ok of ['0', '1m', '5m', '1h', '90s', '3600s']) {
+      expect(loadEnv({ ...base(), RECONCILE_SWEEP_INTERVAL: ok }).RECONCILE_SWEEP_INTERVAL).toBe(
+        ok,
+      );
+    }
+    for (const bad of ['30s', '2h', '1d', '5', '-1m', 'abc', '']) {
+      expect(() => loadEnv({ ...base(), RECONCILE_SWEEP_INTERVAL: bad }), bad).toThrow(
+        /RECONCILE_SWEEP_INTERVAL/,
+      );
+    }
+    expect(toAppConfig(loadEnv({ ...base(), RECONCILE_SWEEP_INTERVAL: '0' })).maintenance).toEqual({
+      sweepIntervalSeconds: 0,
+    });
+    expect(toAppConfig(loadEnv(base())).maintenance.sweepIntervalSeconds).toBe(300);
+    expect(toAppConfig(loadEnv(base())).governance).toEqual({
+      escalateAfterCooldowns: 2,
+      cooldownWindowSeconds: 604_800,
+      disengagedAfterDays: 14,
+      requireSecondAdmin: true,
+    });
+    for (const bad of ['0', '21', '1.5', 'x']) {
+      expect(() => loadEnv({ ...base(), ESCALATE_AFTER_COOLDOWNS: bad }), bad).toThrow(
+        /ESCALATE_AFTER_COOLDOWNS/,
+      );
+    }
+    for (const bad of ['59m', '91d', '7', 'x']) {
+      expect(() => loadEnv({ ...base(), ESCALATE_COOLDOWN_WINDOW: bad }), bad).toThrow(
+        /ESCALATE_COOLDOWN_WINDOW/,
+      );
+    }
+  });
+
+  it('E4d: DISENGAGED_AFTER_DAYS (1..365, default 14) and ESCALATION_REQUIRE_SECOND_ADMIN (default true)', () => {
+    const cfg = toAppConfig(loadEnv(base())).governance;
+    expect(cfg).toMatchObject({ disengagedAfterDays: 14, requireSecondAdmin: true });
+    expect(loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: '1' }).DISENGAGED_AFTER_DAYS).toBe(1);
+    expect(loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: '365' }).DISENGAGED_AFTER_DAYS).toBe(365);
+    for (const bad of ['0', '366', '1.5', 'x', '-3']) {
+      expect(() => loadEnv({ ...base(), DISENGAGED_AFTER_DAYS: bad }), bad).toThrow(
+        /DISENGAGED_AFTER_DAYS/,
+      );
+    }
+    const off = toAppConfig(loadEnv({ ...base(), ESCALATION_REQUIRE_SECOND_ADMIN: 'false' }));
+    expect(off.governance.requireSecondAdmin).toBe(false);
+    expect(() => loadEnv({ ...base(), ESCALATION_REQUIRE_SECOND_ADMIN: 'no' })).toThrow(
+      /ESCALATION_REQUIRE_SECOND_ADMIN/,
+    );
   });
 
   it('E5: BCRYPT_COST below 12 or above 15 throws; 12 and 13 are accepted', () => {

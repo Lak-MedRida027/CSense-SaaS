@@ -7,6 +7,21 @@ export interface AppConfig {
   jsonBodyLimit: string;
   jwtAccessSecret: string;
   refreshTokenSecret: string;
+  audit: {
+    /** Keys the audit-log hash chain (ADR 0012). */
+    chainSecret: string;
+  };
+  governance: {
+    /** Cooldowns on one assessment inside the window that open an escalation. */
+    escalateAfterCooldowns: number;
+    cooldownWindowSeconds: number;
+    disengagedAfterDays: number;
+    requireSecondAdmin: boolean;
+  };
+  maintenance: {
+    /** In-process reconcile sweeper period in seconds; 0 disables it. */
+    sweepIntervalSeconds: number;
+  };
   accessTtlSeconds: number;
   refreshTtlSeconds: number;
   bcryptCost: number;
@@ -45,6 +60,17 @@ export function toAppConfig(env: Env): AppConfig {
     jsonBodyLimit: env.JSON_BODY_LIMIT,
     jwtAccessSecret: env.JWT_ACCESS_SECRET,
     refreshTokenSecret: env.REFRESH_TOKEN_SECRET,
+    audit: { chainSecret: env.AUDIT_CHAIN_SECRET },
+    governance: {
+      escalateAfterCooldowns: env.ESCALATE_AFTER_COOLDOWNS,
+      cooldownWindowSeconds: parseDuration(env.ESCALATE_COOLDOWN_WINDOW),
+      disengagedAfterDays: env.DISENGAGED_AFTER_DAYS,
+      requireSecondAdmin: env.ESCALATION_REQUIRE_SECOND_ADMIN,
+    },
+    maintenance: {
+      sweepIntervalSeconds:
+        env.RECONCILE_SWEEP_INTERVAL === '0' ? 0 : parseDuration(env.RECONCILE_SWEEP_INTERVAL),
+    },
     accessTtlSeconds: parseDuration(env.JWT_ACCESS_TTL),
     refreshTtlSeconds: parseDuration(env.JWT_REFRESH_TTL),
     bcryptCost: env.BCRYPT_COST,

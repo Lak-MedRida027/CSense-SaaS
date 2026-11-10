@@ -5,20 +5,33 @@ import type { AppConfig } from '../../src/config/appConfig.js';
 /** Fresh random secret per call: no secret is ever hard-coded in tests, and CI needs no env vars. */
 export const randomSecret = (): string => randomBytes(48).toString('base64url');
 
+/** One chain secret per test process: every app and the verifier in a file share one chain. */
+export const testChainSecret = randomSecret();
+
 export const silentLogger = pino({ level: 'silent' });
 
-type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit' | 'learning'>> & {
+type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit' | 'learning' | 'governance'>> & {
+  governance?: Partial<AppConfig['governance']>;
   rateLimit?: Partial<AppConfig['rateLimit']>;
   learning?: Partial<AppConfig['learning']>;
 };
 
 /** AppConfig with random secrets and limits high enough not to interfere, unless overridden. */
 export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
-  const { rateLimit, learning, ...rest } = overrides;
+  const { rateLimit, learning, governance, ...rest } = overrides;
   return {
     jsonBodyLimit: '100kb',
     jwtAccessSecret: randomSecret(),
     refreshTokenSecret: randomSecret(),
+    audit: { chainSecret: testChainSecret },
+    maintenance: { sweepIntervalSeconds: 0 },
+    governance: {
+      escalateAfterCooldowns: 2,
+      cooldownWindowSeconds: 7 * 86_400,
+      disengagedAfterDays: 14,
+      requireSecondAdmin: true,
+      ...governance,
+    },
     accessTtlSeconds: 900,
     refreshTtlSeconds: 7 * 86_400,
     bcryptCost: 12,

@@ -314,6 +314,7 @@ describe('configuration', () => {
     MONGODB_URI: 'mongodb://127.0.0.1:27017/csense',
     JWT_ACCESS_SECRET: randomSecret(),
     REFRESH_TOKEN_SECRET: randomSecret(),
+    AUDIT_CHAIN_SECRET: randomSecret(),
   });
 
   it('new keys have documented defaults and bounds', () => {

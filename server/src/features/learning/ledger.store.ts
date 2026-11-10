@@ -76,7 +76,10 @@ export async function reserveAttemptNumber(
     // stale streak starts the cooldown here instead.
     const stale = rule.now.getTime() - current.updatedAt.getTime() > STALE_STREAK_MS;
     const until = stale
-      ? await startCooldownIfDue(userId, assessmentId, current.consecutiveFails, rule)
+      ? await startCooldownIfDue(userId, assessmentId, current.consecutiveFails, {
+          ...rule,
+          attemptNumber: current.seq,
+        })
       : null;
     return { blockedUntil: until ?? new Date(rule.now.getTime() + WINDOW_RETRY_MS) };
   }
@@ -133,9 +136,20 @@ export async function startCooldownIfDue(
   userId: string,
   assessmentId: string,
   streak: number,
-  rule: { afterFails: number; minutes: number; now: Date },
+  rule: { afterFails: number; minutes: number; now: Date; attemptNumber?: number },
 ): Promise<Date | null> {
   if (streak < rule.afterFails) return null;
+  const attemptNumber =
+    rule.attemptNumber ??
+    (
+      await AttemptCounter.findOne({
+        userId: toObjectId(userId),
+        assessmentId: toObjectId(assessmentId),
+      })
+        .select('seq')
+        .lean()
+    )?.seq ??
+    1;
   const until = new Date(rule.now.getTime() + rule.minutes * 60_000);
   const started = await AttemptCounter.updateOne(
     {
@@ -143,7 +157,25 @@ export async function startCooldownIfDue(
       assessmentId: toObjectId(assessmentId),
       consecutiveFails: trusted({ $gte: rule.afterFails }),
     },
-    { $set: { cooldownUntil: until, consecutiveFails: 0 } },
+    {
+      $set: { cooldownUntil: until, consecutiveFails: 0 },
+      // Durable record of this cooldown, written in the same atomic update that starts it: what
+      // reconcile rebuilds a missing audit entry from. Never inferred from attempt history.
+      $push: {
+        cooldowns: {
+          $each: [
+            {
+              attemptNumber,
+              afterFails: rule.afterFails,
+              minutes: rule.minutes,
+              startedAt: rule.now,
+              until,
+            },
+          ],
+          $slice: -50,
+        },
+      },
+    },
   );
   return started.modifiedCount === 1 ? until : null;
 }

@@ -57,7 +57,7 @@ Publish invariant (`pre('validate')`, only when `isPublished`): a `video` module
 Indexes: `{order:1}` unique · `{isPublished:1,order:1}`
 
 ### `badges` (Badge)
-`name` (required), `moduleId` → Module (required), `iconMotif` (required).
+`name` (required, max 120), `moduleId` → Module (required), `iconMotif` (required, max 40; the vocabulary is `BADGE_ICON_MOTIFS`, validated by the shared `badgeAuthoringSchema`).
 Index: `{moduleId:1}` **unique** (one badge per module, U5).
 
 ### `userprogresses` (UserProgress)
@@ -138,14 +138,43 @@ Startup builds and verifies (key, `unique`, partial filter, not just the name) t
 Indexes: `{userId:1,assessmentId:1}` unique where `status = open` (one open session) · TTL `{expiresAt:1}` (30 days past expiry).
 
 ### `attemptcounters` (AttemptCounter, Phase 3, not in the diagram)
-Per-(employee, assessment) ledger: `seq` (attempt numbers, atomic `$inc` at session start), `attempts`, `bestScore` and `firstPassAt` (set once by a conditional write, which decides the first pass and fires the completion hooks exactly once), `consecutiveFails` (failure streak, reset by a pass or when a cooldown starts) and `cooldownUntil` (new sessions are refused until then). Unique index `{userId:1,assessmentId:1}`.
+Per-(employee, assessment) ledger: `seq` (attempt numbers, atomic `$inc` at session start), `attempts`, `cooldowns[]` (every cooldown started: attempt number, rule in force, `startedAt`, `until`; written in the same atomic update that starts it; audit entries are rebuilt from it, never from history), `bestScore` and `firstPassAt` (set once by a conditional write, which decides the first pass and fires the completion hooks exactly once), `consecutiveFails` (failure streak, reset by a pass or when a cooldown starts) and `cooldownUntil` (new sessions are refused until then). Unique index `{userId:1,assessmentId:1}`.
 
-### `riskprofiles` (RiskProfile)
-`userId` → User (required, **unique**), `knowledgeScore`, `behaviouralScore`, `simulationScore`,
-`engagementScore` (int 0-100, default 0 pending U7), `riskLevel` (`Low` \| `Medium` \| `High`,
-default `Low`). Indexes: `{userId:1}` unique · `{riskLevel:1}`.
-Weights (30/25/30/15) and the Low/Medium/High → Green/Amber/Red mapping live in
-`shared/src/constants/risk.ts`.
+### `riskprofiles` (RiskProfile, changed in Phase 4; ADR 0010)
+`userId` → User (required, **unique**; employees only, created lazily on the first recomputation). Sub-scores
+`knowledgeScore`, `behaviouralScore`, `simulationScore`, `engagementScore` and `compositeScore` (not in the UML;
+materialises `computeComposite()`) are int 0-100 or **null = not assessed** (default null, decision D4-23);
+`riskLevel` `Low` \| `Medium` \| `High` or null. Also: `coverage` (per dimension `assessed` \| `not_assessed` \| `disabled`),
+`effectiveWeightsBp`, `evidence` (counts the score was computed from), `modelVersion`, `rev` (compare-and-set counter),
+`lastAssessmentId`, `highEpisodeId` (the assessment that moved the profile into High; null otherwise), `computedAt`.
+Indexes: `{userId:1}` unique · `{riskLevel:1}` · `{compositeScore:-1}`.
+Weights (30/25/30/15, also in basis points), bands (0-39 / 40-69 / 70-100) and the Low/Medium/High →
+Green/Amber/Red mapping live in `shared/src/constants/risk.ts`; the pure model is `shared/src/risk`.
+
+### `riskassessments` (RiskAssessment, Phase 4, append-only)
+History of every change to a profile, written only when a score, the coverage, the level or the model version changes:
+`userId`, `profileRev`, `modelVersion`, `scores`, `compositeScore`, `riskLevel`, `previousLevel`, `levelChanged`, `coverage`,
+`effectiveWeightsBp`, `evidence`, `inputsDigest` (SHA-256 of the canonical facts), `trigger` `{type: attempt \|
+reconcile \| critical_event \| model_upgrade \| config_change, refId}`, `computedAt`. Indexes: `{userId:1,computedAt:-1}` ·
+`{levelChanged:1,computedAt:-1}`. The `appendOnly` plugin blocks every update and delete path.
+
+### `badgeawards` (BadgeAward, Phase 4, append-only; the UML "Employee earns Badge")
+`userId`, `badgeId`, `moduleId` (denormalised), `attemptId` (the passing attempt, or null), `source` (`completion` \|
+`reconcile`), `awardedAt`. Indexes: `{userId:1,badgeId:1}` **unique** (exactly-once) · `{badgeId:1}` · `{userId:1,awardedAt:-1}`.
+`Employee.totalXP` and `level` are a monotone projection of the attempt history (`computeXp`), never incremented.
+
+### `escalations` (Escalation, Phase 4, not in the diagram; ADR 0011)
+`userId` (subject), `reason` (`risk_level_high` \| `repeated_assessment_cooldowns` \| `disengaged_unassessed` \| `disengaged_no_progress` \| `simulation_credentials_submitted` \|
+`gate_access_restricted`), `severity` (`elevated` \| `critical`), `reviewTier` (`security_team` \| `management`), `status`
+(`open` \| `acknowledged` \| `resolved`), `active`, `scopeKey` (`risk`, `assessment:<id>` or null), `dedupeKey` (**unique**),
+`context` (risk snapshot at opening), `sourceRef`, `openedAt`, acknowledge/resolve actor and time, `assigneeId`, `resolution`,
+`managementReference`, `events[]` (`opened`, `retriggered`, `acknowledged`, `note`, `resolved`; max 200; each with an `audited`
+outbox flag; resolved events also carry `sameAdmin`), `acknowledgedBy` / `resolvedBy` (separation of duties), `version`, and the counters `retriggerCount`, `lastRetriggeredAt`, `lastRetriggerRef` (retriggers past the 150-event system budget; 50 slots stay reserved for administrators). Indexes: `{dedupeKey:1}` unique · `{userId:1,scopeKey:1}` unique where `active` and
+`scopeKey` is a string (one active escalation per employee and scope: `risk`, `assessment:<id>`, `disengaged`) · `{status:1,severity:1,openedAt:-1}` ·
+`{userId:1,openedAt:-1}` · `{'events.audited':1}`.
+
+### `reconcilemarkers` (ReconcileMarker, Phase 4)
+One per employee that needs a reconcile (`reasons`, `parkedReasons`, `auditKeys`, `attempts`, `notBefore`); left by a failed hook or audit write. The sweeper claims it with an atomic update that increments `attempts` (never reset by a failure) and leases it via `notBefore`; a failure backs off 30 s up to 1 h, and at 10 claims the marker is parked for an operator.
 
 ### `phishingsimulations` (PhishingSimulation, behind `FEATURE_PHISHING`)
 `campaignName` (required), `emailTemplate` (required), `status` (`draft` \| `scheduled` \|
@@ -173,23 +202,29 @@ sessions stay available for investigations for a month).
 ### `auditlogs` (AuditLog, Phase 2, append-only; ADR 0005)
 | Field | Type | Rules |
 |---|---|---|
-| action | enum `AUDIT_ACTIONS` (shared) | required: `auth.login.succeeded`, `auth.login.failed`, `auth.login.rate_limited`, `auth.login.account_targeted`, `auth.refresh.reuse_detected`, `auth.refresh.denied`, `auth.logout`, `user.created`, `admin.bootstrapped`, `learning.seed.reset`, `learning.assessment.cooldown` (Phase 4 appends risk and escalation actions) |
+| action | enum `AUDIT_ACTIONS` (shared) | required: `auth.login.succeeded`, `auth.login.failed`, `auth.login.rate_limited`, `auth.login.account_targeted`, `auth.refresh.reuse_detected`, `auth.refresh.denied`, `auth.logout`, `user.created`, `admin.bootstrapped`, `learning.seed.reset`, `learning.assessment.cooldown`, and (Phase 4) `risk.level_changed`, `escalation.opened`, `escalation.retriggered`, `escalation.acknowledged`, `escalation.note_added`, `escalation.resolved`, `governance.critical_event_recorded`, `audit.integrity_checked`, `maintenance.reconcile_run` |
 | outcome | `success` or `failure` | required |
 | severity | `info`, `warning` or `critical` | default `info` |
 | actorId, actorRole | ObjectId or null, Role or null | null when anonymous or system |
-| targetType, targetId | `user` or `session`, ObjectId (both nullable) | |
+| targetType, targetId | `user`, `session` or `escalation`, ObjectId (both nullable) | |
+| seq | int >= 1 | **unique** (partial: entries written before Phase 4 have none); dense chain position (ADR 0012) |
+| prevHash, hash | 64 hex | `hash = HMAC-SHA256(AUDIT_CHAIN_SECRET, canonical entry incl. prevHash)`; genesis prevHash is 64 zeros. A new entry without them fails validation |
+| idempotencyKey | String up to 200 or null | unique when present; a repeated write returns the first entry (used by the escalation outbox) |
 | ip, userAgent, requestId | String or null | max 64 / 256 / 64 |
 | metadata | Mixed | default `{}`; at most 2 KB of JSON; secret-looking keys (`pass`, `token`, `secret`, `hash`) are stripped by the audit service |
-| createdAt | Date | `timestamps: { createdAt: true, updatedAt: false }` |
+| createdAt | Date | set by the audit service from the injected clock before hashing (no Mongoose timestamps, which could overwrite it); no `updatedAt` |
 
-Indexes: `{createdAt:-1}` · `{actorId:1,createdAt:-1}` · `{targetId:1,createdAt:-1}` · `{action:1,createdAt:-1}`.
+Indexes: `{createdAt:-1}` · `{actorId:1,createdAt:-1}` · `{targetId:1,createdAt:-1}` · `{action:1,createdAt:-1}` · `{seq:1}` unique (partial) · `{idempotencyKey:1}` unique (partial) · `{action:1,seq:-1}` · `{targetId:1,seq:-1}` · `{actorId:1,seq:-1}`.
 
 Immutability: Mongoose middleware throws `AuditLogImmutableError` (`AUDIT_LOG_IMMUTABLE`) for `save`
 on an existing document, `updateOne`, `updateMany`, `findOneAndUpdate`, `replaceOne`,
 `findOneAndReplace`, `deleteOne` (query and document), `deleteMany`, `findOneAndDelete` and
-`bulkWrite`. Only `create` and `insertMany` write. This is model-level protection; the raw driver or
-a database user with write rights can still modify the collection (Phase 10: restrict the
-application's DB role to insert/find on `auditlogs`). Test cleanup uses driver-level `deleteMany`.
+`bulkWrite`. Only `create` writes: since Phase 4 `insertMany` is blocked too (chain entries are written one at a time by
+`features/audit`). This is model-level protection; the raw driver or a database user with write rights can
+still modify the collection, which is exactly what the hash chain detects (`npm run audit:verify`: gap,
+link mismatch or hash mismatch with the first broken `seq`; entries without a `seq` are counted as unchained
+legacy). Phase 10: restrict the application DB role to insert/find, anchor the tip outside the database, rotate
+the key. Test cleanup uses driver-level `deleteMany`.
 
 ## Global Mongoose settings
 `server/src/db/mongooseSettings.ts` sets `strictQuery: true` and `sanitizeFilter: true` (a
@@ -203,11 +238,11 @@ application's DB role to insert/find on `auditlogs`). Test cleanup uses driver-l
 | Module ◆ Quiz | Referenced (unique `moduleId` on Quiz) | Quiz has its own identity, referenced by attempts |
 | User → UserProgress / QuizAttempt / RiskProfile | Own collections | Cross-user admin queries; unbounded growth |
 | Badge → Module | Referenced | As drawn |
-| Employee earns Badge | Not stored yet (U4, Phase 4) | Proposed `earnedBadges[{badgeId, awardedAt}]` on Employee |
+| Employee earns Badge | Own collection `badgeawards` (Phase 4) | Unique `{userId, badgeId}` makes the award exactly-once and permanent |
 
 ## Planned additions (not in the diagram; built in the owning phase)
 Refresh-token sessions and the append-only audit log were added in Phase 2 (above).
 
-escalations (4) · gate state (5) ·
+gate state (5) ·
 onboarding flag (6) · module assignments (7) · phishing outcomes and review cycles (flagged) ·
 (interactive exercise data landed in Phase 3). See the Phase 0 plan section 3.4.
