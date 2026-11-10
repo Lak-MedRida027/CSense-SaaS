@@ -87,3 +87,6 @@ So in Phase 4 Simulation has no data for anyone, and Behavioural has no gate dat
 
 ## Amendment (stalled employees, Phase 4 re-review P4-L12)
 Becoming assessed is not the end of the story: two first attempts classify an employee, and an employee who then stalls would be invisible (Medium never escalates, Engagement is only 15 %). The disengagement rule therefore covers every active employee whose curriculum is unfinished and who has made no progress for `DISENGAGED_AFTER_DAYS` (default 14): reason `disengaged_unassessed` while not assessed, `disengaged_no_progress` once assessed. Progress is the latest of account creation, module start, exercise answer, content completion, any attempt, and the resolution of an earlier flag, so an administrator resolution gives the employee a fresh period and a later stall can be flagged again. At most one flag is active per employee. This is governance, not a score: model version unchanged.
+
+## Superseded in part (Phase 5)
+ADR 0017 introduces risk model v2 (`RISK_MODEL_VERSION = 2`): Behavioural becomes 70% security-gate signals and 30% the v1 quiz-conduct signals, as D4-9 reserved. Weights of the four dimensions (30/25/30/15), the bands and the re-normalisation rule are unchanged. Deployments run `gamification:reconcile` after upgrading so every profile is recomputed under v2.
