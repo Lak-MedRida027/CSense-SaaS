@@ -95,6 +95,66 @@ export default tseslint.config(
     ...jsxA11y.flatConfigs.recommended,
   },
 
+  // The renderer has no network access (CSP `connect-src 'self'`, ADR 0013): the API is reached by the
+  // main process only, through the bridge. These bans make a stray fetch a lint error, not a CSP surprise.
+  {
+    files: ['desktop/src/renderer/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-globals': [
+        'error',
+        ...['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'].map((name) => ({
+          name,
+          message: 'The renderer must not use the network: call the preload bridge instead.',
+        })),
+      ],
+      'no-restricted-properties': [
+        'error',
+        ...['window', 'globalThis', 'self'].flatMap((object) =>
+          ['fetch', 'XMLHttpRequest', 'WebSocket', 'EventSource'].map((property) => ({
+            object,
+            property,
+            message: 'The renderer must not use the network: call the preload bridge instead.',
+          })),
+        ),
+      ],
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            { name: 'electron', message: 'The renderer talks to main only via window.csense.' },
+          ],
+        },
+      ],
+    },
+  },
+
+  // Main-process logic reaches Electron through the ports (ADR 0013 item 9), so controllers stay
+  // unit-testable with fakes. Only the glue files below may import `electron`.
+  {
+    files: ['desktop/src/main/**/*.ts'],
+    ignores: [
+      'desktop/src/main/electron/ports.ts',
+      'desktop/src/main/bootstrap.ts',
+      'desktop/src/main/tray.ts',
+      'desktop/src/main/security/hardening.ts',
+      'desktop/src/main/security/protocol.ts',
+    ],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          paths: [
+            {
+              name: 'electron',
+              message:
+                'Import Electron only in the port/glue files; depend on electron/types.ts instead.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+
   // Design system: UI code takes colour from tokens only (design/tokens -> CSS variables).
   // CSS modules are covered by desktop/src/renderer/src/design/noColourLiterals.test.ts.
   {

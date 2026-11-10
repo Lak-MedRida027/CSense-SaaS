@@ -28,6 +28,7 @@ export function QuizScreen(props: QuizScreenProps) {
   return (
     <LockdownShell
       lockdownState={lockdownState}
+      warning={props.lockdownWarning}
       onConfirmExit={props.onConfirmExit}
       pendingContent={
         <div className={styles.pending}>

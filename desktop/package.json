@@ -10,13 +10,15 @@
     "preview": "electron-vite preview",
     "test:e2e": "playwright test",
     "build:styleguide": "electron-vite build --mode styleguide",
-    "test:a11y": "npm run build:styleguide && playwright test e2e/styleguide.a11y.spec.ts"
+    "test:a11y": "npm run build:styleguide && playwright test e2e/styleguide.a11y.spec.ts",
+    "test:main": "vitest run --config vitest.main.config.mts"
   },
   "dependencies": {
     "@csense/shared": "0.1.0",
     "lucide-react": "^1.61.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",

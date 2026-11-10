@@ -83,6 +83,25 @@ npm run audit:verify:dev -w @csense/server -- [--from=<seq>]
 `maintenance.reconcile_run` audit entry. The API also runs a sweeper every `RECONCILE_SWEEP_INTERVAL` (default 5m,
 `0` disables) that repairs employees marked after a failed hook and completes unaudited escalation events.
 
+## What the gate and quiz lockdown cannot do (honest limits)
+
+CSense is a user-space application. The pre-access gate is a **post-logon, pre-use** control, not a replacement for the
+Windows logon, and the quiz lockdown is an anti-cheating aid, not a security boundary against a determined local user.
+On Windows, Electron **cannot** block:
+
+- the Windows logon itself (a pre-logon gate needs a native Credential Provider);
+- Ctrl+Alt+Del and anything reachable from it (Task Manager, sign out, lock);
+- Win+L, the Win key, Win+D, Win+Tab, Win+R, Win+V (clipboard history), Alt+Tab, Ctrl+Shift+Esc;
+- killing the process (Task Manager, `taskkill`): the gate returns at the next logon, and the missing daily pass is
+  visible server-side;
+- capture at hypervisor or remote-desktop level, a second device, a phone camera, or another person.
+
+What it does: starts at login (packaged builds), covers every display before any network call, refuses close and
+Alt+F4 while locked (never OS logoff or shutdown), blocks the shortcut set in `docs/security/manual-lockdown-checklist.md`,
+clears and blocks the clipboard, blacks out screenshots of the window during a quiz, and enforces a focus-loss policy.
+Closing these gaps is **Phase 10 fleet policy** (machine-wide start, Assigned Access, `NoWinKeys`, `DisableTaskMgr`,
+`AllowClipboardHistory=0`, AppLocker, a relaunch watchdog). See ADR 0015 and ADR 0016.
+
 ## Scripts
 | Command | What it does |
 |---|---|

@@ -46,10 +46,15 @@ jobs:
       - run: npm run build
 
   e2e:
-    name: Electron smoke (Windows)
+    name: Electron e2e (Windows)
     needs: quality
     runs-on: windows-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    env:
+      # The harness (server/src/testing/e2eServer.ts) refuses to start unless NODE_ENV=test and
+      # CSENSE_E2E_HARNESS=1 (set by the Playwright globalSetup). ADR 0018.
+      NODE_ENV: test
+      MONGOMS_DOWNLOAD_DIR: ${{ github.workspace }}\.cache\mongodb-binaries
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -58,9 +63,12 @@ jobs:
           cache: npm
       - uses: actions/cache@v4
         with:
-          path: ~\AppData\Local\electron\Cache
-          key: ${{ runner.os }}-electron-${{ hashFiles('package-lock.json') }}
+          path: |
+            ~\AppData\Local\electron\Cache
+            ${{ github.workspace }}\.cache\mongodb-binaries
+          key: ${{ runner.os }}-e2e-bins-${{ hashFiles('package-lock.json') }}
       - run: npm ci
+      # Also builds the server dist the harness runs (server/dist/src/testing/e2eServer.js).
       - run: npm run build
       - run: npm run test:e2e
       # Rebuilds the desktop app in styleguide mode and runs axe (incl. colour contrast) in Electron.

@@ -28,3 +28,6 @@ Thumbs.db
 .vscode/*
 !.vscode/extensions.json
 .idea/
+
+# Electron e2e backend info (per-run credentials)
+desktop/e2e/.run/
