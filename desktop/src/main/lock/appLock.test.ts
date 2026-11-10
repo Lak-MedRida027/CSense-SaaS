@@ -151,3 +151,42 @@ describe('AppLock', () => {
     expect(shortcut.registered.size).toBe(0);
   });
 });
+
+describe('AppLock paste policy', () => {
+  function withPaste(provider: () => boolean) {
+    const window = new FakeWindow();
+    const lock = new AppLock({
+      window,
+      covers: new CoverManager(new FakeDisplays()),
+      clipboard: new FakeClipboard(),
+      globalShortcut: new FakeGlobalShortcut(),
+      log: recordingLogger(),
+      allowPaste: provider,
+    });
+    return { window, lock };
+  }
+
+  it('follows the provider in the gate profile and re-reads it on every key', () => {
+    let login = true;
+    const { window, lock } = withPaste(() => login);
+    lock.lock('gate');
+    expect(window.press({ key: 'v', control: true })).toBe(false);
+    expect(window.press({ key: 'Insert', shift: true })).toBe(false);
+    login = false; // a challenge is now shown
+    expect(window.press({ key: 'v', control: true })).toBe(true);
+    expect(window.press({ key: 'c', control: true })).toBe(true);
+  });
+
+  it('fails closed when the provider throws, and never applies to lockdown', () => {
+    const throwing = withPaste(() => {
+      throw new Error('state unknown');
+    });
+    throwing.lock.lock('gate');
+    expect(throwing.window.press({ key: 'v', control: true })).toBe(true);
+
+    const quiz = withPaste(() => true);
+    quiz.lock.lock('lockdown');
+    expect(quiz.window.press({ key: 'v', control: true })).toBe(true);
+    expect(quiz.window.press({ key: 'Insert', shift: true })).toBe(true);
+  });
+});

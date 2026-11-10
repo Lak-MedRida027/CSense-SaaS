@@ -124,6 +124,7 @@ export function bootstrap(): void {
     const late: {
       session?: SessionService;
       lockdown?: LockdownController;
+      gate?: GateController;
       tray?: TrayHandle;
     } = {};
     const api = new ApiClient({
@@ -154,6 +155,8 @@ export function bootstrap(): void {
       onBlockedInput: (profile) => {
         if (profile === 'lockdown') late.lockdown?.noteBlockedInput();
       },
+      // Paste is allowed only on the Login step, decided from main's own gate state.
+      allowPaste: () => late.gate?.getView().phase === 'signed_out',
       canHideToTray: () => !quitting && late.tray !== undefined,
     });
 
@@ -227,6 +230,7 @@ export function bootstrap(): void {
       gate,
     });
     late.lockdown = lockdown;
+    late.gate = gate;
     gate.attachLockdown(lockdown);
     void lockdown.loadPending();
 
@@ -283,6 +287,14 @@ export function bootstrap(): void {
     });
     app.on('window-all-closed', () => {
       // The tray keeps the app (reminders, clearance timers) alive; Quit is explicit and gated.
+    });
+    // Context-menu paste, Login inputs only (no other menu is ever built).
+    win.webContents.on('context-menu', (_event, params) => {
+      if (lock.state === 'gate' && gate.getView().phase === 'signed_out' && params.isEditable) {
+        Menu.buildFromTemplate([{ role: 'paste', enabled: params.editFlags.canPaste }]).popup({
+          window: win,
+        });
+      }
     });
     win.webContents.on('render-process-gone', () => {
       // Lockdown handles its own policy; outside lockdown just bring the UI back.

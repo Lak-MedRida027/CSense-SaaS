@@ -7,6 +7,7 @@ import {
   installKeyProbe,
   launchApp,
   pressKey,
+  setClipboard,
   windowState,
   type Launched,
 } from './support/launch';
@@ -79,6 +80,23 @@ test.describe.serial('security gate: blocks, then grants', () => {
     await expect(s.page.getByRole('heading', { level: 1, name: 'Sign in' })).toBeVisible();
   });
 
+  test('2b. paste works on the Login step (password managers), into the inputs', async () => {
+    await installKeyProbe(s.app);
+    await setClipboard(s.app, 'pasted.user@example.com');
+    await s.page.getByLabel(/Work email/).focus();
+    const seen = await pressKey(s.app, 'V', ['control']);
+    expect(seen[0]?.prevented).toBe(false);
+    await expect(s.page.getByLabel(/Work email/)).toHaveValue('pasted.user@example.com');
+    await s.page.getByLabel(/Work email/).fill('');
+    const insert = await pressKey(s.app, 'Insert', ['shift']);
+    expect(insert[0]?.prevented).toBe(false);
+    await expect(s.page.getByLabel(/Work email/)).toHaveValue('pasted.user@example.com');
+    await s.page.getByLabel(/Work email/).fill('');
+    // Copy and cut stay blocked on Login.
+    expect((await pressKey(s.app, 'C', ['control']))[0]?.prevented).toBe(true);
+    expect((await pressKey(s.app, 'X', ['control']))[0]?.prevented).toBe(true);
+  });
+
   test('3. gate.continue() before a grant is refused (S16)', async () => {
     const res = await s.page.evaluate(() => window.csense?.gate.continue());
     expect(res).toMatchObject({ ok: false, error: { code: 'GATE_LOCKED' } });
@@ -97,6 +115,10 @@ test.describe.serial('security gate: blocks, then grants', () => {
     await expect(s.page.getByRole('heading', { level: 1, name: 'Security check' })).toBeVisible();
     await expect(s.page.getByText(/3 of 3/)).toBeVisible();
     expect((await windowState(s.app)).kiosk).toBe(true);
+    // Once a challenge is showing, paste is blocked again.
+    await setClipboard(s.app, 'should not paste');
+    expect((await pressKey(s.app, 'V', ['control']))[0]?.prevented).toBe(true);
+    expect((await pressKey(s.app, 'Insert', ['shift']))[0]?.prevented).toBe(true);
   });
 
   test('5. a wrong answer: "Not quite", 2 remaining, a different question', async () => {

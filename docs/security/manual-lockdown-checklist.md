@@ -18,7 +18,9 @@ an *not blockable* row (it suddenly gets blocked) is also worth noting.
 | A3 | Alt+F4 | Blocked, gate stays |
 | A4 | Click taskbar / try to minimise or move the window | Not possible (no taskbar entry) |
 | A5 | Ctrl+W, Ctrl+R, F5, F11, F12, Ctrl+Shift+I | Blocked |
-| A6 | Right-click anywhere | No menu |
+| A6 | Right-click anywhere except an email/password field on the Login step | No menu |
+| A6b | Login step: paste a password with Ctrl+V, Shift+Insert and right-click > Paste (also from a password manager) | Works, into the email and password inputs only |
+| A6c | Challenge step (after sign-in): Ctrl+V, Shift+Insert, right-click | Blocked, no menu |
 | A7 | Tray: is there any Quit/Sign out while locked? | No |
 | A8 | Sign out (Sign out link) | Returns to Login, still locked |
 | A9 | Lock the screen (Win+L) and unlock | Gate is shown again if the clearance expired; re-checked otherwise |
@@ -32,7 +34,7 @@ an *not blockable* row (it suddenly gets blocked) is also worth noting.
 | # | Action | Expect |
 |---|---|---|
 | B1 | Put text on the clipboard, start a secure quiz | Clipboard empty after entry |
-| B2 | Ctrl+C on question text, Ctrl+V / Ctrl+X, Shift+Insert, Ctrl+Insert | Blocked; clipboard stays empty |
+| B2 | Ctrl+C on question text, Ctrl+V / Ctrl+X, Shift+Insert, Ctrl+Insert, right-click > Paste | Blocked (paste is allowed on Login only, never here); clipboard stays empty |
 | B3 | Ctrl+P, Ctrl+S, Ctrl+O, Ctrl+N, Ctrl+T, Ctrl+F, Ctrl+G, Ctrl+U | Blocked |
 | B4 | F1 to F12 (including F7 caret browsing), the Context Menu key, Shift+F10 | Blocked |
 | B5 | Alt+F4, Alt+Space, Alt+Left, Alt+Right, Alt+Home | Blocked |

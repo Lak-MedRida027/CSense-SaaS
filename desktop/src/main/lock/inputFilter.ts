@@ -45,7 +45,20 @@ export interface InputDecision {
   allow: boolean;
 }
 
-export function decideInput(profile: LockProfile, input: InputEventLike): InputDecision {
+export interface InputContext {
+  /**
+   * Gate profile only, and only while the Login step is shown: allow paste (Ctrl+V, Shift+Insert)
+   * so password managers work (NIST SP 800-63B). Absent or false means blocked (fail closed). Login
+   * is the only editable page in that state, so the paste can only land in its two inputs.
+   */
+  allowPaste?: boolean;
+}
+
+export function decideInput(
+  profile: LockProfile,
+  input: InputEventLike,
+  ctx: InputContext = {},
+): InputDecision {
   const { key, control, alt, shift, meta } = input;
   const block: InputDecision = { allow: false };
   const allow: InputDecision = { allow: true };
@@ -62,10 +75,13 @@ export function decideInput(profile: LockProfile, input: InputEventLike): InputD
 
   if (BENIGN_MODIFIER_KEYS.has(key)) return allow;
 
+  const pasteOk = profile === 'gate' && ctx.allowPaste === true;
+
   if (control) {
     // Zoom (WCAG 1.4.4): Ctrl+Plus, Ctrl+Minus, Ctrl+0.
     if (ZOOM_KEYS.has(key)) return allow;
     if (key === '0' && !shift) return allow;
+    if (pasteOk && !shift && key.toLowerCase() === 'v') return allow;
     // Editing in the Login inputs only.
     if (profile === 'gate' && !shift && (key.toLowerCase() === 'a' || key.toLowerCase() === 'z')) {
       return allow;
@@ -73,6 +89,7 @@ export function decideInput(profile: LockProfile, input: InputEventLike): InputD
     return block;
   }
 
+  if (pasteOk && shift && key === 'Insert') return allow;
   if (key === 'Insert' || key === 'ContextMenu') return block;
   if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return block;
 

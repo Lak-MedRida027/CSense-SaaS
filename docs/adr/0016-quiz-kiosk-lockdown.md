@@ -16,6 +16,7 @@ CLAUDE.md requires a kiosk/lockdown mode that restricts shortcuts, the clipboard
 2. **Window state:** kiosk, full screen, always on top (`screen-saver` level), not closable, minimisable or movable, skip taskbar, plus cover windows on other displays.
 3. **`setContentProtection(true)`** blacks out screenshots and screen recording of the window (`WDA_EXCLUDEFROMCAPTURE`). A best-effort `PrintScreen` global shortcut is registered.
 4. **Clipboard:** cleared on entry and on exit; copy, cut and paste blocked in the input filter and in the renderer. No periodic clearing.
+   - **Amendment (paste on Login):** during quiz lockdown, and on the gate challenge, paste stays blocked. On the gate's Login step only (main's own gate state is `signed_out`), Ctrl+V and Shift+Insert are allowed, plus a paste-only context menu on editable fields, so password managers work (NIST SP 800-63B). Login has no editable element except its email and password inputs. The decision is made in the main-process input filter from the gate controller state; if that state is unknown or the lookup fails, paste is blocked. Clipboard clearing is unchanged and main never reads the clipboard.
 5. **Input filter** (`before-input-event`, default block).
    - Allowed: Tab, Shift+Tab, Enter, Space, arrows, Home, End, Page keys, zoom (Ctrl+Plus, Ctrl+Minus, Ctrl+0), and Escape for the exit dialog only.
    - Everything else is blocked, including Ctrl+C/V/X, Insert combinations, reload, devtools keys, print, save, find, new or close window, F1 to F12 and Alt combinations.

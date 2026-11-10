@@ -24,6 +24,11 @@ export interface AppLockDeps {
   log: Logger;
   /** Called for each blocked keystroke while locked (the lockdown controller throttles a warning). */
   onBlockedInput?: (profile: LockProfile) => void;
+  /**
+   * True only while the gate shows the Login step (D5-1: paste into the Login inputs). Consulted for
+   * the gate profile only; if absent, or it returns false or throws, paste stays blocked.
+   */
+  allowPaste?: () => boolean;
   /** When unlocked, closing the window hides it to the tray instead of quitting (D5-22). */
   canHideToTray?: () => boolean;
 }
@@ -39,7 +44,15 @@ export class AppLock {
     this.disposers.push(
       window.onBeforeInput((input) => {
         if (this.current === 'unlocked') return false;
-        const decision = decideInput(this.current, input);
+        let allowPaste = false;
+        if (this.current === 'gate') {
+          try {
+            allowPaste = deps.allowPaste?.() === true;
+          } catch {
+            allowPaste = false;
+          }
+        }
+        const decision = decideInput(this.current, input, { allowPaste });
         if (!decision.allow && input.type === 'keyDown') deps.onBlockedInput?.(this.current);
         return !decision.allow;
       }),

@@ -165,3 +165,37 @@ describe('IF1: input filter decision table', () => {
     expect(decideInput('lockdown', { ...ctrl('c'), type: 'keyUp' }).allow).toBe(false);
   });
 });
+
+describe('IF2: paste on the Login step only (fail closed)', () => {
+  const pastes: [string, InputEventLike][] = [
+    ['Ctrl+V', ctrl('v')],
+    ['Ctrl+V (upper)', ctrl('V')],
+    ['Shift+Insert', key('Insert', { shift: true })],
+  ];
+  for (const [name, input] of pastes) {
+    it(`${name}: allowed only in the gate profile with allowPaste`, () => {
+      expect(decideInput('gate', input, { allowPaste: true }).allow).toBe(true);
+      // Challenge step (allowPaste false/absent): blocked, exactly as before.
+      expect(decideInput('gate', input, { allowPaste: false }).allow).toBe(false);
+      expect(decideInput('gate', input, {}).allow).toBe(false);
+      expect(decideInput('gate', input).allow).toBe(false);
+      // Quiz lockdown never allows it, even if the flag leaks through.
+      expect(decideInput('lockdown', input, { allowPaste: true }).allow).toBe(false);
+    });
+  }
+
+  it('allowPaste opens nothing else: copy, cut, Ctrl+Insert, Shift+Delete, Ctrl+Shift+V stay blocked', () => {
+    const ctx = { allowPaste: true };
+    for (const input of [
+      ctrl('c'),
+      ctrl('x'),
+      ctrl('Insert'),
+      key('Delete', { shift: true }),
+      ctrl('V', { shift: true }),
+      key('v', { meta: true }),
+      key('Insert'),
+    ]) {
+      expect(decideInput('gate', input, ctx).allow, JSON.stringify(input)).toBe(false);
+    }
+  });
+});
