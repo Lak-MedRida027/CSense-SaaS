@@ -79,3 +79,4 @@ this ADR:
   Phase 4 decision. Without replica-set transactions, a business write and its audit entry are not
   atomic; the audit write happens first for escalations so a failure aborts the action. For
   `user.created` the user is inserted first and deleted again if the audit write fails.
+- Update (Phase 4): tamper evidence is implemented as a keyed hash chain (ADR 0012), and for escalations the "audit first" rule is replaced by an outbox with idempotent audit writes (ADR 0011).

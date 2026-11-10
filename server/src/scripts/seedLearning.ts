@@ -13,19 +13,27 @@ import {
   checkPoolSizes,
   type ModuleAuthoring,
 } from '@csense/shared';
-import { loadDotEnvFile } from '../config/env.js';
+import { generatedSecret, loadDotEnvFile } from '../config/env.js';
 import { connectDb, disconnectDb } from '../db/connect.js';
-import { audit } from '../features/audit/audit.service.js';
+import { audit, configureAudit, createAuditService } from '../features/audit/audit.service.js';
 import { createLogger } from '../lib/logger.js';
 import {
   Assessment,
   AssessmentSession,
+  Badge,
+  BadgeAward,
+  Employee,
+  Escalation,
   FinalTest,
   Module,
   Quiz,
   QuizAttempt,
+  ReconcileMarker,
+  RiskAssessment,
+  RiskProfile,
   UserProgress,
 } from '../models/index.js';
+import { seedBadges } from './seedBadges.js';
 import { SEED_FINAL_TEST, SEED_MODULES, SEED_QUIZZES } from './seed/learningContent.js';
 
 /**
@@ -54,6 +62,23 @@ export interface SeedOptions {
   confirm?: string | undefined;
   /** Database name; defaults to the current connection's. */
   dbName?: string;
+}
+
+/** The audit chain key must not be reused as a JWT secret. Never echoes a value. */
+export function assertChainSecretDistinct(env: {
+  AUDIT_CHAIN_SECRET?: string | undefined;
+  JWT_ACCESS_SECRET?: string | undefined;
+  REFRESH_TOKEN_SECRET?: string | undefined;
+}): void {
+  const chain = env.AUDIT_CHAIN_SECRET;
+  if (chain === undefined) return;
+  for (const key of ['JWT_ACCESS_SECRET', 'REFRESH_TOKEN_SECRET'] as const) {
+    if (env[key] === chain) {
+      throw new Error(
+        `Invalid environment configuration: AUDIT_CHAIN_SECRET must differ from ${key}`,
+      );
+    }
+  }
 }
 
 export class SeedRefusedError extends Error {
@@ -139,12 +164,30 @@ export function validateSeedContent(): ValidatedSeed {
 const isDuplicateKey = (err: unknown): boolean =>
   typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 11000;
 
-/** QuizAttempt is append-only at the model layer, so a reset goes through the driver. */
+/**
+ * QuizAttempt is append-only at the model layer, so a reset goes through the driver. Everything
+ * derived from the learning data goes too (badges, awards, risk and escalations), and employee XP
+ * returns to zero. The audit log is never touched.
+ */
 async function resetLearningData(): Promise<void> {
   await Promise.all(
-    [Module, Assessment, UserProgress, QuizAttempt, AssessmentSession].map((m) =>
-      m.collection.deleteMany({}),
-    ),
+    [
+      Module,
+      Assessment,
+      UserProgress,
+      QuizAttempt,
+      AssessmentSession,
+      Badge,
+      BadgeAward,
+      RiskProfile,
+      RiskAssessment,
+      Escalation,
+      ReconcileMarker,
+    ].map((m) => m.collection.deleteMany({})),
+  );
+  await Employee.collection.updateMany(
+    { role: 'employee' },
+    { $set: { totalXP: 0, level: 'Apprentice' } },
   );
 }
 
@@ -237,6 +280,11 @@ const seedEnvSchema = z.object({
     }),
   NODE_ENV: z.string().optional(),
   SEED_ALLOW_REMOTE: z.enum(['true', 'false']).default('false'),
+  // Only --reset writes an audit entry, so only --reset needs the chain key.
+  AUDIT_CHAIN_SECRET: generatedSecret.optional(),
+  // Read only to enforce that the chain key differs from them (the API enforces this at start-up).
+  JWT_ACCESS_SECRET: z.string().optional(),
+  REFRESH_TOKEN_SECRET: z.string().optional(),
 });
 
 async function main(): Promise<void> {
@@ -246,7 +294,8 @@ async function main(): Promise<void> {
     const keys = [...new Set(parsed.error.issues.map((i) => i.path.join('.')))].join(', ');
     throw new Error(`Invalid environment configuration: ${keys}`);
   }
-  const { MONGODB_URI, NODE_ENV, SEED_ALLOW_REMOTE } = parsed.data;
+  const { MONGODB_URI, NODE_ENV, SEED_ALLOW_REMOTE, AUDIT_CHAIN_SECRET } = parsed.data;
+  assertChainSecretDistinct(parsed.data);
   // All checks run before the database is touched.
   assertSeedEnvironment(NODE_ENV);
   assertLocalMongo(MONGODB_URI, SEED_ALLOW_REMOTE === 'true');
@@ -258,12 +307,17 @@ async function main(): Promise<void> {
       `--reset wipes learning data. Repeat the database name: --confirm=${dbName}`,
     );
   }
+  if (reset) {
+    if (!AUDIT_CHAIN_SECRET) throw new Error('--reset is audited and needs AUDIT_CHAIN_SECRET');
+    configureAudit(createAuditService({ chainSecret: AUDIT_CHAIN_SECRET }));
+  }
   const logger = createLogger('info');
 
   await connectDb(MONGODB_URI);
   try {
     const result = await seedLearningContent({ nodeEnv: NODE_ENV, reset, confirm, dbName });
-    logger.info({ ...result, reset }, 'Learning content seeded');
+    const badges = await seedBadges({ nodeEnv: NODE_ENV });
+    logger.info({ ...result, badges, reset }, 'Learning content seeded');
   } finally {
     await disconnectDb();
   }

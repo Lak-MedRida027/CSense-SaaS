@@ -19,17 +19,17 @@ const rejectsImmutable = async (op: () => unknown): Promise<void> => {
 
 describe('AuditLog model', () => {
   it('AU1: create works, createdAt is set and there is no updatedAt', async () => {
-    const doc = await AuditLog.create(entry());
-    const raw = await AuditLog.collection.findOne({ _id: doc._id });
+    const { id } = await audit.record(entry());
+    const raw = await AuditLog.collection.findOne({ _id: new Types.ObjectId(id) });
     expect(raw?.createdAt).toBeInstanceOf(Date);
     expect(raw).not.toHaveProperty('updatedAt');
-    expect(doc.severity).toBe('info');
-    expect(doc.metadata).toEqual({});
+    expect(raw?.severity).toBe('info');
+    expect(raw?.metadata).toEqual({});
   });
 
   it('AU2: every update, replace, delete and bulk path is rejected and nothing changes', async () => {
-    const doc = await AuditLog.create(entry({ metadata: { n: 1 } }));
-    const id = doc._id;
+    const written = await audit.record(entry({ metadata: { n: 1 } }));
+    const id = new Types.ObjectId(written.id);
     const original = JSON.stringify(await AuditLog.collection.findOne({ _id: id }));
 
     const ops: (() => unknown)[] = [
@@ -71,10 +71,9 @@ describe('AuditLog model', () => {
     expect(JSON.stringify(await AuditLog.collection.findOne({ _id: id }))).toBe(original);
   });
 
-  it('AU3: insertMany is allowed', async () => {
-    const docs = await AuditLog.insertMany([entry(), entry({ action: 'auth.logout' })]);
-    expect(docs).toHaveLength(2);
-    expect(await AuditLog.countDocuments()).toBe(2);
+  it('AU3: insertMany is blocked (chain entries are written one at a time, ADR 0012)', async () => {
+    await rejectsImmutable(() => AuditLog.insertMany([entry(), entry({ action: 'auth.logout' })]));
+    expect(await AuditLog.countDocuments()).toBe(0);
   });
 
   it('AU4: unknown fields and unknown actions are rejected', async () => {

@@ -20,6 +20,23 @@ const attemptCounterSchema = new Schema(
     // configured limit starts a cooldown and resets it too.
     consecutiveFails: { type: Number, default: 0, min: 0, validate: intValidator },
     cooldownUntil: { type: Date, default: null },
+    // Every cooldown actually started, with the rule in force (most recent 50). Written in the
+    // same atomic update that starts the cooldown; audit entries are rebuilt from it, never from history.
+    cooldowns: {
+      type: [
+        new Schema(
+          {
+            attemptNumber: { type: Number, required: true, min: 1, validate: intValidator },
+            afterFails: { type: Number, required: true, min: 1, validate: intValidator },
+            minutes: { type: Number, required: true, min: 1, validate: intValidator },
+            startedAt: { type: Date, required: true },
+            until: { type: Date, required: true },
+          },
+          { _id: false, strict: 'throw' },
+        ),
+      ],
+      default: [],
+    },
   },
   { ...baseSchemaOptions, collection: 'attemptcounters' },
 );

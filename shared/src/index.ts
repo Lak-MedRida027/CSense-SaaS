@@ -8,24 +8,36 @@ export * from './constants/auth.js';
 export * from './constants/audit.js';
 export * from './constants/errors.js';
 export * from './constants/learning.js';
+export * from './constants/gamification.js';
+export * from './constants/governance.js';
 
 export * from './schemas/common.js';
+export * from './schemas/text.js';
 export * from './schemas/auth.js';
 export * from './schemas/users.js';
 export * from './schemas/learning.js';
 export * from './schemas/learningResponses.js';
 export * from './schemas/learningAuthoring.js';
+export * from './schemas/badgeAuthoring.js';
+export * from './schemas/risk.js';
+export * from './schemas/governance.js';
+export * from './schemas/auditLogs.js';
+export * from './schemas/gamificationResponses.js';
+export * from './schemas/riskResponses.js';
+export * from './schemas/governanceResponses.js';
+export * from './schemas/auditLogResponses.js';
 
 export * from './learning/index.js';
+export * from './gamification/index.js';
+export * from './risk/index.js';
+export * from './governance/index.js';
 
 export type * from './types/user.js';
 export type * from './types/module.js';
 export type * from './types/assessment.js';
 export type * from './types/progress.js';
 export type * from './types/badge.js';
-export type * from './types/risk.js';
 export type * from './types/phishing.js';
 export type * from './types/api.js';
 export type * from './types/auth.js';
-export type * from './types/audit.js';
 export type * from './types/learning.js';

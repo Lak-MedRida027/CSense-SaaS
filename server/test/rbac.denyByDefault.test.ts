@@ -65,6 +65,15 @@ describe('route table', () => {
         'POST /final-test/attempts role:employee',
         'GET /me/attempts role:employee',
         'GET /me/attempts/:attemptId role:employee',
+        // Phase 4: gamification (employee, self only) and governance (administrator only).
+        'GET /me/xp role:employee',
+        'GET /me/badges role:employee',
+        'GET /admin/risk-profiles role:administrator',
+        'GET /admin/users/:userId/risk-profile role:administrator',
+        'GET /admin/escalations role:administrator',
+        'GET /admin/escalations/:escalationId role:administrator',
+        'PATCH /admin/escalations/:escalationId role:administrator',
+        'GET /admin/audit-logs role:administrator',
       ].sort(),
     );
   });
@@ -111,7 +120,7 @@ describe('route table', () => {
         r.access.roles.includes('employee') &&
         !r.access.roles.includes('administrator'),
     );
-    expect(employeeRoutes.length).toBeGreaterThanOrEqual(15);
+    expect(employeeRoutes.length).toBeGreaterThanOrEqual(17);
     for (const r of employeeRoutes) {
       const res = await request(t.app)
         [r.method](`/api/v1${concrete(r.path)}`)

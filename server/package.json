@@ -9,7 +9,12 @@
     "start": "node dist/src/index.js",
     "bootstrap:admin": "node dist/src/scripts/bootstrapAdmin.js",
     "bootstrap:admin:dev": "tsx src/scripts/bootstrapAdmin.ts",
-    "seed:learning:dev": "tsx src/scripts/seedLearning.ts"
+    "seed:learning:dev": "tsx src/scripts/seedLearning.ts",
+    "seed:badges:dev": "tsx src/scripts/seedBadges.ts",
+    "gamification:reconcile": "node dist/src/scripts/reconcileGamification.js",
+    "gamification:reconcile:dev": "tsx src/scripts/reconcileGamification.ts",
+    "audit:verify": "node dist/src/scripts/verifyAudit.js",
+    "audit:verify:dev": "tsx src/scripts/verifyAudit.ts"
   },
   "dependencies": {
     "@csense/shared": "0.1.0",

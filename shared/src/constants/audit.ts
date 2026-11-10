@@ -11,6 +11,16 @@ export const AUDIT_ACTIONS = [
   'admin.bootstrapped',
   'learning.seed.reset',
   'learning.assessment.cooldown',
+  'risk.level_changed',
+  'escalation.opened',
+  'escalation.retriggered',
+  'escalation.acknowledged',
+  'escalation.note_added',
+  'escalation.resolved',
+  'escalation.resolve_refused',
+  'governance.critical_event_recorded',
+  'audit.integrity_checked',
+  'maintenance.reconcile_run',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
@@ -20,5 +30,5 @@ export type AuditOutcome = (typeof AUDIT_OUTCOMES)[number];
 export const AUDIT_SEVERITIES = ['info', 'warning', 'critical'] as const;
 export type AuditSeverity = (typeof AUDIT_SEVERITIES)[number];
 
-export const AUDIT_TARGET_TYPES = ['user', 'session'] as const;
+export const AUDIT_TARGET_TYPES = ['user', 'session', 'escalation'] as const;
 export type AuditTargetType = (typeof AUDIT_TARGET_TYPES)[number];

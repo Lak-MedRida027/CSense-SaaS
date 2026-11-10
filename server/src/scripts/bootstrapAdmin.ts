@@ -4,7 +4,7 @@ import { emailSchema, newPasswordSchema } from '@csense/shared';
 import { toAppConfig } from '../config/appConfig.js';
 import { loadEnv } from '../config/env.js';
 import { connectDb, disconnectDb } from '../db/connect.js';
-import { audit } from '../features/audit/audit.service.js';
+import { audit, configureAudit, createAuditService } from '../features/audit/audit.service.js';
 import { hashPassword } from '../features/auth/password.js';
 import { createLogger } from '../lib/logger.js';
 import { Administrator, User } from '../models/index.js';
@@ -123,6 +123,8 @@ async function main(): Promise<void> {
   const env = loadEnv();
   const config = toAppConfig(env);
   const logger = createLogger(env.LOG_LEVEL);
+  // The bootstrap audit entry joins the hash chain, so the script needs the same key as the API.
+  configureAudit(createAuditService({ chainSecret: config.audit.chainSecret }));
   await connectDb(env.MONGODB_URI);
   try {
     const result = await bootstrapAdmin(process.env, {
