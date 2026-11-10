@@ -28,6 +28,12 @@ an *not blockable* row (it suddenly gets blocked) is also worth noting.
 | A11 | Log off or shut down while the gate is up | **Never blocked** (Windows proceeds) |
 | A12 | Disconnect the network, restart the app | Offline screen; "Continue offline" only after the grace period; re-locks when the network returns |
 | A13 | Wrong answer x3 | Restricted screen with a `GATE-` reference; relaunch is still restricted |
+| A14 | Restricted employee: close the app (Task Manager), disconnect the network, start CSense again, wait past the grace period | The Offline screen never shows "Continue offline" (D5-5 outranks D5-12) |
+| A15 | Employee who was never restricted: block only the API (for example a bad per-user proxy), start CSense, wait 120 s, "Continue offline", then restore the proxy | Workstation re-locks when the API answers; the server shows an offline-release report for the user |
+| A16 | Released as an administrator, then try to sign in as an employee (only possible through the bridge) | Refused; if it happens anyway the gate re-locks and asks the question |
+| A17 | Answer the last gate question and sign out at the same moment | No grant for the signed-out session (late answers are dropped) |
+| A18 | Login step, Arabic or Russian keyboard layout: Ctrl+V into the password field | Pastes (layout-independent V key); Ctrl+C and Ctrl+X still blocked |
+| A19 | Console of a debug build: `iframe.contentWindow.close.call(window)` | The window closes, CSense restarts and shows the locked gate again within a few seconds |
 
 ## B. Quiz lockdown (active quiz)
 
@@ -48,6 +54,7 @@ an *not blockable* row (it suddenly gets blocked) is also worth noting.
 | B13 | Lose focus a 3rd time, or stay away 15 s | Attempt ends as abandoned; workstation unlocked |
 | B14 | Open a UAC prompt during a quiz | Counts as a focus loss (known, accepted risk 7) |
 | B15 | Kill the renderer (Task Manager, "CSense" renderer process) once | Quiz screen restarts with a notice; still locked. Twice: attempt ends, unlocked |
+| B15b | Close the window of a running quiz through the iframe trick above (debug build) | App restarts into the gate; after sign-in the attempt shows as abandoned (pending abandon replayed for the same user only) |
 | B16 | Kill the main CSense process | All restrictions vanish with it; nothing persists. Next start is clean |
 | B17 | Log off / shut down mid-quiz | **Never blocked** |
 | B18 | Leave the quiz open past the time limit + 60 s | Lockdown ends by itself |

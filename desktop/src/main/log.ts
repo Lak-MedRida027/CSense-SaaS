@@ -48,6 +48,8 @@ export interface Logger {
   info(event: string, data?: Record<string, unknown>): void;
   warn(event: string, data?: Record<string, unknown>): void;
   error(event: string, data?: Record<string, unknown>): void;
+  /** Resolves when every queued line has been written (used before the process exits). */
+  flush?(): Promise<void>;
 }
 
 export const noopLogger: Logger = {
@@ -99,6 +101,7 @@ export function createFileLogger(deps: {
   }
 
   return {
+    flush: () => chain,
     debug: (e, d) => {
       write('debug', e, d);
     },

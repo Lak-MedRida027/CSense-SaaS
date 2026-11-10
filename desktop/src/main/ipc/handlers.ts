@@ -35,6 +35,9 @@ export function buildHandlers(deps: HandlerDeps): IpcHandlers {
     'session.getState': () => session.getView(),
     'session.login': async (input) => {
       if (config.apiBaseUrl === null) return misconfigured;
+      // P5-L2: signing in is a Login-step action. While released (or mid-gate) it would swap identity
+      // without a challenge, so it is refused unless main's gate is waiting for credentials.
+      if (gate.getView().phase !== 'signed_out') return locked;
       return session.login(input);
     },
     'session.logout': async () => {

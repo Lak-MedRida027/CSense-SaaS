@@ -37,12 +37,15 @@ interface ActiveLockdown {
   kind: 'quiz' | 'final';
   moduleId: string | null;
   expiresAt: number;
+  userId: string | null;
   session: AssessmentSessionDTO;
   focusLosses: number;
   crashed: boolean;
 }
 
 export interface PendingAbandon {
+  /** The user who owned the session (P5-I5): another user's entries are never replayed. */
+  userId: string;
   kind: 'quiz' | 'final';
   moduleId: string | null;
   sessionId: string;
@@ -56,6 +59,8 @@ export interface LockdownDeps {
   fs: FsPort;
   /** Absolute path of pending.json (ids only). */
   pendingPath: string;
+  /** The currently signed-in user id, or null. */
+  currentUserId: () => string | null;
   emit: (event: MainEvent) => void;
   log: Logger;
   gate: { isReleased(): boolean };
@@ -155,6 +160,7 @@ export class LockdownController implements LockdownGate {
       kind: input.kind,
       moduleId: input.kind === 'quiz' ? input.moduleId : null,
       expiresAt: Number.isNaN(expiresAt) ? this.now() + 60 * 60_000 : expiresAt,
+      userId: this.deps.currentUserId(),
       session,
       focusLosses: 0,
       crashed: false,
@@ -224,6 +230,21 @@ export class LockdownController implements LockdownGate {
     return { ok: true, data: { attempt } };
   }
 
+  /**
+   * The window was destroyed unexpectedly while a quiz was running (P5-L7): record the session as a
+   * pending abandon BEFORE the process restarts, so the attempt is closed server-side next start.
+   */
+  async parkActiveForRestart(): Promise<void> {
+    const a = this.active;
+    if (!a || a.userId === null) return;
+    await this.addPending({
+      userId: a.userId,
+      kind: a.kind,
+      moduleId: a.moduleId,
+      sessionId: a.sessionId,
+    });
+  }
+
   /** Sign-out path: leave lockdown locally (if active) and abandon in the background. */
   leaveForSignOut(): void {
     const a = this.active;
@@ -269,7 +290,10 @@ export class LockdownController implements LockdownGate {
 
   /** Retry abandons that never reached the server (called once signed in and online). */
   async retryPending(): Promise<void> {
+    const me = this.deps.currentUserId();
     for (const p of [...this.pending]) {
+      // P5-I5: only the owner's session may be abandoned with the owner's credentials.
+      if (me === null || p.userId !== me) continue;
       const res = await this.sendAbandon(p);
       if (res.kind === 'done') await this.removePending(p.sessionId);
       else if (res.kind === 'retry') return;
@@ -399,7 +423,14 @@ export class LockdownController implements LockdownGate {
   }
 
   private async abandonFlow(a: ActiveLockdown): Promise<AttemptResultDTO | null> {
-    const p: PendingAbandon = { kind: a.kind, moduleId: a.moduleId, sessionId: a.sessionId };
+    const userId = a.userId;
+    if (userId === null) return null; // nobody to act for: the server session simply expires
+    const p: PendingAbandon = {
+      userId,
+      kind: a.kind,
+      moduleId: a.moduleId,
+      sessionId: a.sessionId,
+    };
     await this.addPending(p);
     for (let i = 0; i <= ABANDON_BACKOFF_MS.length; i++) {
       const res = await this.sendAbandon(p);
@@ -514,6 +545,9 @@ function isPendingAbandon(x: unknown): x is PendingAbandon {
   if (typeof x !== 'object' || x === null) return false;
   const o = x as Record<string, unknown>;
   return (
+    typeof o.userId === 'string' &&
+    o.userId.length > 0 &&
+    o.userId.length <= 64 &&
     (o.kind === 'quiz' || o.kind === 'final') &&
     typeof o.sessionId === 'string' &&
     /^[a-f0-9]{24}$/i.test(o.sessionId) &&

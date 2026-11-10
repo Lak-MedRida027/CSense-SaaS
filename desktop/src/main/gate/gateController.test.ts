@@ -111,6 +111,8 @@ describe('GateController', () => {
       api,
       session,
       power: w.power,
+      gateState: w.gateState,
+      offlineReports: w.offlineReports,
       log: w.log,
       emit: () => undefined,
     });
@@ -522,5 +524,24 @@ describe('GateController', () => {
     expect(JSON.stringify(w.gateViews)).not.toMatch(
       /token-\d|accessToken|refreshToken|correct(Answer|Index)/i,
     );
+  });
+
+  it('P5-I4: an expired challenge (409 stale, status now required) recovers to a fresh question', async () => {
+    const w = makeWorld();
+    const state = await toChallenge(w);
+    // The server expired the challenge: the answer is refused, the gate is back to "required", and
+    // the next challenge request serves a new question on the same run.
+    state.status = requiredStatus;
+    state.nextChallenge = challengeStatus(3, OID.challenge2);
+    w.fakeApi.on('POST /gate/attempts', apiError(409, 'GATE_CHALLENGE_STALE'));
+    const res = await w.gate.submitAnswer({ challengeId: OID.challenge1, optionIndex: 0 });
+    expect(res).toMatchObject({ ok: false, error: { code: 'GATE_CHALLENGE_STALE' } });
+    await settle();
+    expect(w.gate.getView()).toMatchObject({
+      phase: 'challenge',
+      attemptsRemaining: 3,
+      challenge: { challengeId: OID.challenge2 },
+    });
+    expect(w.lock.state).toBe('gate');
   });
 });

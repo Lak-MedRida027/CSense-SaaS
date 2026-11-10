@@ -94,6 +94,7 @@ On Windows, Electron **cannot** block:
 - Win+L, the Win key, Win+D, Win+Tab, Win+R, Win+V (clipboard history), Alt+Tab, Ctrl+Shift+Esc;
 - killing the process (Task Manager, `taskkill`): the gate returns at the next logon, and the missing daily pass is
   visible server-side;
+- making ONLY the API unreachable (for example per-user proxy settings, with the rest of the network up). After the offline grace period (default 120 s, D5-12) CSense offers an explicit "Continue offline" to an employee who has never been restricted on this machine. An employee whose last server-known state on this machine was **restricted** is never offered it (D5-5), but that state is only known if it was seen here. Every offline release is queued (encrypted), reported to the server when the API answers (`POST /gate/offline-releases`) and audited after the fact;
 - capture at hypervisor or remote-desktop level, a second device, a phone camera, or another person.
 
 What it does: starts at login (packaged builds), covers every display before any network call, refuses close and

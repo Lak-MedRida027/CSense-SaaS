@@ -6,6 +6,8 @@ import type { GateView, MainEvent } from '../../shared/ipcChannels';
 import { ApiClient } from '../api/client';
 import type { DesktopConfig } from '../config';
 import { GateController } from '../gate/gateController';
+import { GateStateStore } from '../gate/gateStateStore';
+import { OfflineReporter } from '../gate/offlineReporter';
 import { AppLock } from '../lock/appLock';
 import { CoverManager } from '../lock/covers';
 import { LockdownController } from '../lockdown/lockdownController';
@@ -171,6 +173,8 @@ export interface World {
   power: FakePower;
   lock: AppLock;
   gate: GateController;
+  gateState: GateStateStore;
+  offlineReports: OfflineReporter;
   lockdown: LockdownController;
   log: ReturnType<typeof recordingLogger>;
   config: typeof testConfig;
@@ -178,6 +182,8 @@ export interface World {
 
 export const SESSION_FILE = '/data/session.v1.json';
 export const PENDING_FILE = '/data/pending.json';
+export const GATE_STATE_FILE = '/data/gate-state.v1.json';
+export const OFFLINE_REPORTS_FILE = '/data/offline-releases.v1.json';
 
 export function makeWorld(overrides: Partial<typeof testConfig> = {}): World {
   const config = { ...testConfig, ...overrides };
@@ -224,12 +230,22 @@ export function makeWorld(overrides: Partial<typeof testConfig> = {}): World {
       if (p === 'lockdown') late.lockdown?.noteBlockedInput();
     },
   });
+  const gateState = new GateStateStore({ fs, safeStorage, filePath: GATE_STATE_FILE, log });
+  const offlineReports = new OfflineReporter({
+    api,
+    fs,
+    safeStorage,
+    filePath: OFFLINE_REPORTS_FILE,
+    log,
+  });
   const gate = new GateController({
     config,
     lock,
     api,
     session,
     power,
+    gateState,
+    offlineReports,
     log,
     emit: (v) => {
       gateViews.push(v);
@@ -243,6 +259,7 @@ export function makeWorld(overrides: Partial<typeof testConfig> = {}): World {
     api,
     fs,
     pendingPath: PENDING_FILE,
+    currentUserId: () => session.getUser()?.id ?? null,
     emit: (e) => {
       events.push(e);
     },
@@ -269,6 +286,8 @@ export function makeWorld(overrides: Partial<typeof testConfig> = {}): World {
     lock,
     gate,
     lockdown,
+    gateState,
+    offlineReports,
     log,
     config,
   };

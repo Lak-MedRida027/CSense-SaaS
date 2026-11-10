@@ -199,3 +199,33 @@ describe('IF2: paste on the Login step only (fail closed)', () => {
     }
   });
 });
+
+describe('IF3: paste on non-Latin layouts (decided by the physical key code)', () => {
+  const layouts: [string, string][] = [
+    ['Arabic', '\u0645'],
+    ['Cyrillic', '\u043c'],
+    ['Hebrew', '\u05d0'],
+  ];
+  for (const [name, glyph] of layouts) {
+    it(`${name}: Ctrl+${glyph} (code KeyV) pastes on Login only`, () => {
+      const input = key(glyph, { control: true, code: 'KeyV' });
+      expect(decideInput('gate', input, { allowPaste: true }).allow).toBe(true);
+      expect(decideInput('gate', input, { allowPaste: false }).allow).toBe(false);
+      expect(decideInput('gate', input).allow).toBe(false);
+      expect(decideInput('lockdown', input, { allowPaste: true }).allow).toBe(false);
+    });
+  }
+
+  it('every block decision is unchanged: other physical keys, Shift, Alt and Meta variants stay blocked', () => {
+    const ctx = { allowPaste: true };
+    for (const input of [
+      key('\u0441', { control: true, code: 'KeyC' }), // copy on a Cyrillic layout
+      key('\u0447', { control: true, code: 'KeyX' }), // cut
+      key('\u043c', { control: true, shift: true, code: 'KeyV' }),
+      key('\u043c', { meta: true, code: 'KeyV' }),
+      key('v', { control: true, alt: false, shift: true, code: 'KeyV' }),
+    ]) {
+      expect(decideInput('gate', input, ctx).allow, JSON.stringify(input)).toBe(false);
+    }
+  });
+});

@@ -2,7 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNEL_NAMES } from '../../shared/ipc';
 import { jsonReply, recordingLogger } from '../testing/fakes';
 import { toReleased } from '../testing/helpers';
-import { OID, installAuthRoutes, makeWorld, sessionDto, type World } from '../testing/world';
+import {
+  OID,
+  challengeStatus,
+  installAuthRoutes,
+  makeWorld,
+  sessionDto,
+  type World,
+} from '../testing/world';
 import { buildHandlers } from './handlers';
 import { IpcRegistry, type IpcMainLike } from './registry';
 
@@ -145,5 +152,27 @@ describe('bridge handlers', () => {
     expect(await call('assessment.resume')).toBeNull();
     await call('assessment.startSecure', { kind: 'quiz', moduleId: OID.module1 });
     expect(await call('assessment.resume')).toMatchObject({ session: { sessionId: OID.session1 } });
+  });
+
+  it('P5-L2: session.login is refused unless the gate is waiting for credentials', async () => {
+    const w = makeWorld();
+    await toReleased(w);
+    const { call } = wire(w);
+    const before = w.fakeApi.count('POST /auth/login');
+    expect(
+      await call('session.login', { email: 'other@example.com', password: 'correct-password' }),
+    ).toMatchObject({ ok: false, error: { code: 'GATE_LOCKED' } });
+    expect(w.fakeApi.count('POST /auth/login')).toBe(before);
+    expect(w.lock.state).toBe('unlocked');
+  });
+
+  it('session.login works on the Login step', async () => {
+    const w = makeWorld();
+    installAuthRoutes(w, { status: () => challengeStatus(3) });
+    await w.gate.start();
+    const { call } = wire(w);
+    expect(
+      await call('session.login', { email: 'user@example.com', password: 'correct-password' }),
+    ).toMatchObject({ ok: true });
   });
 });

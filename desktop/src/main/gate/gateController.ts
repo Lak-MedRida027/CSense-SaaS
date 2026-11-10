@@ -19,6 +19,8 @@ import type { PowerPort } from '../electron/types';
 import type { AppLock } from '../lock/appLock';
 import type { Logger } from '../log';
 import { toResult, type SessionService } from '../session/sessionService';
+import type { GateStateStore, KnownGateState } from './gateStateStore';
+import type { OfflineReporter } from './offlineReporter';
 
 const OFFLINE_RETRY_MS = 15_000;
 const MAX_TIMER_MS = 2 ** 31 - 1;
@@ -41,6 +43,10 @@ export interface GateControllerDeps {
   api: ApiClient;
   session: SessionService;
   power: PowerPort;
+  /** Last server-known state per user (P5-M1). */
+  gateState: GateStateStore;
+  /** Queue of offline-release reports (P5-M1). */
+  offlineReports: OfflineReporter;
   emit: (view: GateView) => void;
   log: Logger;
   now?: () => number;
@@ -66,6 +72,8 @@ export class GateController {
   private pendingRelock = false;
   private restoring = false;
   private checkSeq = 0;
+  /** Bumped on every session change; an answer that resolves under another generation is dropped. */
+  private sessionGen = 0;
 
   private relockTimer: ReturnType<typeof setTimeout> | null = null;
   private pollTimer: ReturnType<typeof setInterval> | null = null;
@@ -131,8 +139,7 @@ export class GateController {
           ? {
               since: new Date(this.offlineSince).toISOString(),
               graceElapsed: this.graceElapsed,
-              canContinueOffline:
-                this.graceElapsed && this.deps.config.gateOfflinePolicy === 'open_after_grace',
+              canContinueOffline: this.offlineAllowed(),
             }
           : null,
       feedback: this.feedback,
@@ -151,6 +158,8 @@ export class GateController {
       return;
     }
     this.setPhase('boot');
+    // Last known gate state and queued offline reports come from encrypted files (P5-M1).
+    await Promise.all([this.deps.gateState.load(), this.deps.offlineReports.load()]);
     await this.resolveSession();
   }
 
@@ -182,9 +191,13 @@ export class GateController {
     optionIndex: number;
   }): Promise<Result<GateAnswerView>> {
     if (this.phase !== 'challenge') return failure('GATE_LOCKED', 'No question is open.');
+    const gen = this.sessionGen;
     const res = await this.deps.api.call(OPERATIONS['gate.attempt'], {
       body: { challengeId: input.challengeId, selectedIndex: input.optionIndex },
     });
+    // P5-L1: the session changed while the answer was in flight (sign-out, another user): the
+    // result belongs to an identity that no longer exists and must not move the gate.
+    if (gen !== this.sessionGen) return failure('NOT_SIGNED_IN', 'Your session changed.');
     if (!res.ok) {
       const code = res.error.code;
       if (code === 'GATE_CHALLENGE_STALE' || code === 'ACCESS_RESTRICTED') void this.check();
@@ -205,11 +218,14 @@ export class GateController {
 
   continueOffline(): Result<void> {
     const view = this.getView();
-    if (this.phase !== 'offline' || !view.offline?.canContinueOffline) {
+    if (this.phase !== 'offline' || !view.offline?.canContinueOffline || !this.offlineAllowed()) {
       return failure('GATE_LOCKED', 'Offline access is not available.');
     }
     this.clearTimers();
     this.deps.log.warn('gate.released_offline', { since: view.offline.since });
+    const who = this.deps.session.getKnownUserId();
+    // Queued (encrypted) and sent once the API answers: offline releases are audited after the fact.
+    if (who !== null) void this.deps.offlineReports.add(who);
     this.releasedOffline = true;
     this.phase = 'released';
     this.deps.lock.unlock();
@@ -233,12 +249,21 @@ export class GateController {
   // ---- state machine --------------------------------------------------------------------------
 
   private onSessionChange(change: 'signed_in' | 'signed_out' | 'ended'): void {
+    this.sessionGen++;
     if (change === 'signed_in') {
-      // While released (offline grant) the reconnect probe decides; a fresh login always arrives locked.
-      if (!this.restoring && this.phase !== 'released') void this.check();
+      if (this.restoring) return;
+      if (this.phase === 'released') {
+        // P5-L2: a sign-in while released is an identity change (an administrator becoming an
+        // employee, or another account): it must face the gate. The offline reconnect probe signs the
+        // same user back in while `restoring` is set, which returns above.
+        this.relock('identity_changed');
+        return;
+      }
+      void this.check();
       return;
     }
     // Signed out voluntarily, or the server ended the session.
+    this.checkSeq++; // an in-flight check belongs to the old identity
     this.clearTimers();
     this.status = null;
     this.feedback = null;
@@ -282,6 +307,7 @@ export class GateController {
     if (code === 'NOT_SIGNED_IN') {
       this.setPhase('signed_out');
     } else if (code === 'ACCESS_RESTRICTED') {
+      this.recordKnownState('restricted', null);
       this.leaveOffline();
       this.status = {
         state: 'restricted',
@@ -319,6 +345,12 @@ export class GateController {
       return;
     }
     this.status = s;
+    this.recordKnownState(
+      s.state === 'restricted' ? 'restricted' : s.state === 'granted' ? 'granted' : 'required',
+      s.clearedUntil,
+    );
+    // The API answered: send any queued offline-release reports.
+    this.flushReports();
     if (s.state === 'granted') {
       this.clearedUntilMs = s.clearedUntil ? Date.parse(s.clearedUntil) : null;
       // An existing clearance auto-continues; a pass just earned does not need to.
@@ -374,6 +406,7 @@ export class GateController {
     }
     this.deps.log.info('gate.relock', { reason });
     this.clearTimers();
+    if (this.releasedOffline) this.endOfflineRelease();
     this.releasedOffline = false;
     this.deps.lock.lock('gate');
     this.deps.onRelocked?.();
@@ -411,7 +444,13 @@ export class GateController {
   private async probe(): Promise<void> {
     if (this.currentPhase() !== 'released' || !this.releasedOffline) return;
     if (this.deps.session.getView().status !== 'signed_in') {
-      const outcome = await this.deps.session.restore();
+      this.restoring = true;
+      let outcome;
+      try {
+        outcome = await this.deps.session.restore();
+      } finally {
+        this.restoring = false;
+      }
       if (outcome === 'network_error') return;
       if (outcome === 'signed_out') {
         this.relock('reconnected');
@@ -426,9 +465,11 @@ export class GateController {
       this.relock('reconnected');
       return;
     }
+    this.flushReports();
     if (res.data.state === 'granted') {
       // The server holds a valid clearance for this user: keep the workstation open.
       this.releasedOffline = false;
+      this.endOfflineRelease();
       this.clearedUntilMs = res.data.clearedUntil ? Date.parse(res.data.clearedUntil) : null;
       if (this.offlineRetryTimer) clearInterval(this.offlineRetryTimer);
       this.offlineRetryTimer = null;
@@ -490,6 +531,32 @@ export class GateController {
     this.clearPoll();
     this.feedback = null;
     await this.applyStatus(res.data, { fromAnswer: false });
+  }
+
+  // ---- offline policy and reports (P5-M1) -----------------------------------------------------
+
+  /** Offline access needs the build policy AND a last known state that is not `restricted` (D5-5). */
+  private offlineAllowed(): boolean {
+    if (!this.graceElapsed || this.deps.config.gateOfflinePolicy !== 'open_after_grace') {
+      return false;
+    }
+    const known = this.deps.gateState.get(this.deps.session.getKnownUserId());
+    return known?.state !== 'restricted';
+  }
+
+  private recordKnownState(state: KnownGateState, clearedUntil: string | null): void {
+    const id = this.deps.session.getUser()?.id;
+    if (id) void this.deps.gateState.record(id, state, clearedUntil);
+  }
+
+  private flushReports(): void {
+    const id = this.deps.session.getUser()?.id;
+    if (id) void this.deps.offlineReports.flush(id);
+  }
+
+  private endOfflineRelease(): void {
+    const id = this.deps.session.getKnownUserId();
+    if (id) void this.deps.offlineReports.markEnded(id);
   }
 
   // ---- plumbing -------------------------------------------------------------------------------

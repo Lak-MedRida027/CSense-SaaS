@@ -27,6 +27,8 @@ import {
   realPower,
 } from './electron/ports';
 import { GateController } from './gate/gateController';
+import { GateStateStore } from './gate/gateStateStore';
+import { OfflineReporter } from './gate/offlineReporter';
 import { buildHandlers } from './ipc/handlers';
 import { IpcRegistry } from './ipc/registry';
 import { AppLock } from './lock/appLock';
@@ -177,12 +179,27 @@ export function bootstrap(): void {
       log,
     });
 
+    const gateState = new GateStateStore({
+      fs: realFs,
+      safeStorage,
+      filePath: join(userData, 'gate-state.v1.json'),
+      log,
+    });
+    const offlineReports = new OfflineReporter({
+      api,
+      fs: realFs,
+      safeStorage,
+      filePath: join(userData, 'offline-releases.v1.json'),
+      log,
+    });
     const gate = new GateController({
       config,
       lock,
       api,
       session: sessionSvc,
       power: realPower,
+      gateState,
+      offlineReports,
       log,
       emit: (view: GateView) => {
         emit({ type: 'gate', view });
@@ -225,6 +242,7 @@ export function bootstrap(): void {
       api,
       fs: realFs,
       pendingPath: join(userData, 'pending.json'),
+      currentUserId: () => sessionSvc.getUser()?.id ?? null,
       emit,
       log,
       gate,
@@ -263,22 +281,45 @@ export function bootstrap(): void {
         quitting = true;
       }
     });
-    // Electron destroys a window on a page-script `window.close()` with no cancellable event (found by
-    // the Phase 5 e2e) and `allowScriptsToCloseWindows` is not configurable. First layer: make the
-    // call a no-op for ordinary page script. It is not a boundary (a compromised page can reach
-    // `Window.prototype.close`), which is why the `closed` fallback below exists.
-    win.webContents.on('dom-ready', () => {
-      void win.webContents.executeJavaScript(
+    // Electron destroys a window on a page-script `window.close()` with no cancellable event (found
+    // by the Phase 5 e2e) and `allowScriptsToCloseWindows` is not configurable.
+    // Layer 1: make the call a no-op for ordinary page script. `close` is an own property of the
+    // global object (not of Window.prototype), so it can be redefined there. It is not a boundary:
+    // `iframe.contentWindow.close.call(window)` reaches the native function of another realm and
+    // really closes the window (measured on Electron 45). Frames are denied by the CSP, and the same
+    // redefinition is applied to every frame Electron reports, but an initial about:blank frame is
+    // usable in the same task it is created in, before any main-process hook can run (P5-L7).
+    const neutraliseClose = (run: (code: string) => Promise<unknown>): void => {
+      void run(
         "Object.defineProperty(window,'close',{value:function(){},writable:false,configurable:false});void 0;",
-      );
+      ).catch(() => undefined);
+    };
+    win.webContents.on('dom-ready', () => {
+      neutraliseClose((c) => win.webContents.executeJavaScript(c));
     });
-    // Second layer: if the window is ever destroyed by something other than a normal quit (for
-    // example a renderer `window.close()`, which has no cancellable event), restart so the gate returns.
+    win.webContents.on('frame-created', (_event, details) => {
+      const frame = details.frame;
+      if (frame) neutraliseClose((c) => frame.executeJavaScript(c));
+    });
+    // Layer 2, the actual control: if the window is ever destroyed by something other than a normal
+    // quit, restart so the gate returns. A running quiz is parked as a pending abandon FIRST (ids
+    // only, bound to the user) so the attempt is closed server-side after the restart.
     win.on('closed', () => {
       if (quitting || lock.isSessionEnding) return;
       log.error('window.destroyed_unexpectedly');
-      app.relaunch();
-      app.exit(0);
+      const restart = (): void => {
+        // Unpackaged runs (e2e, dev) are started with tool-specific switches (for example a test
+        // loader that waits for a debugger); restart cleanly from the app path instead.
+        app.relaunch({ args: isPackaged ? process.argv.slice(1) : [app.getAppPath()] });
+        app.exit(0);
+      };
+      const guard = setTimeout(restart, 2000);
+      void Promise.all([lockdown.parkActiveForRestart(), log.flush?.()])
+        .catch(() => undefined)
+        .finally(() => {
+          clearTimeout(guard);
+          restart();
+        });
     });
     app.on('second-instance', () => {
       if (win.isDestroyed()) return;
@@ -310,6 +351,8 @@ export function bootstrap(): void {
     if (devUrl) void win.loadURL(devUrl);
     else void win.loadURL(`${APP_ORIGIN}/index.html`);
     // `start()` locks again (idempotent) before it makes its first request.
-    void tokens.init().then(() => gate.start());
+    void Promise.all([tokens.init(), gateState.load(), offlineReports.load()]).then(() =>
+      gate.start(),
+    );
   });
 }

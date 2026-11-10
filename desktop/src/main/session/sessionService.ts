@@ -55,6 +55,11 @@ export class SessionService {
     return this.user;
   }
 
+  /** The signed-in user, or the user of the stored session while still resolving it (offline start). */
+  getKnownUserId(): string | null {
+    return this.user?.id ?? this.deps.tokens.getRefresh()?.userId ?? null;
+  }
+
   onChange(listener: (c: SessionChange) => void): () => void {
     this.listeners.add(listener);
     return () => {

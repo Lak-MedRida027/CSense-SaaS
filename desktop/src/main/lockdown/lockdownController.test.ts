@@ -2,7 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MainEvent } from '../../shared/ipcChannels';
 import { apiError, jsonReply } from '../testing/fakes';
 import { FAKE_TIMERS, advance, settle, toReleased } from '../testing/helpers';
-import { OID, PENDING_FILE, attemptDto, makeWorld, sessionDto, type World } from '../testing/world';
+import {
+  OID,
+  PENDING_FILE,
+  attemptDto,
+  loginBody,
+  makeWorld,
+  sessionDto,
+  type World,
+} from '../testing/world';
 
 const START = `POST /modules/${OID.module1}/quiz/sessions`;
 const ABANDON = `POST /modules/${OID.module1}/quiz/sessions/${OID.session1}/abandon`;
@@ -177,7 +185,9 @@ describe('LockdownController', () => {
     expect(res).toMatchObject({ ok: true, data: { attempt: null } });
     expect(w.lock.state).toBe('unlocked'); // never a trap
     const pending = JSON.parse(w.fs.text(PENDING_FILE) ?? 'null') as unknown;
-    expect(pending).toEqual([{ kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 }]);
+    expect(pending).toEqual([
+      { userId: OID.user, kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 },
+    ]);
     expect(w.fs.text(PENDING_FILE)).not.toMatch(/token|answer|question/i);
     await advance(10_000);
     expect(w.fakeApi.count(ABANDON)).toBe(4); // first try + 3 backoff retries
@@ -197,7 +207,7 @@ describe('LockdownController', () => {
     w2.fs.files = new Map(w.fs.files);
     await w2.lockdown.loadPending();
     expect(w2.lockdown.getPending()).toEqual([
-      { kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 },
+      { userId: OID.user, kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 },
     ]);
   });
 
@@ -479,5 +489,59 @@ describe('LockdownController', () => {
     await settle();
     expect(w.gate.getView().phase).toBe('signed_out');
     expect(w.lock.state).toBe('gate');
+  });
+
+  it('P5-I5: pending abandons are bound to their user and never replayed for another', async () => {
+    const w = await active();
+    w.fakeApi.on(ABANDON, { status: 0, throws: true });
+    const p = w.lockdown.exit({ sessionId: OID.session1 });
+    await advance(6000);
+    await p;
+    expect(w.lockdown.getPending()[0]?.userId).toBe(OID.user);
+
+    // Another user signs in on the same machine: the first user's entry is skipped.
+    w.fakeApi.on(ABANDON, jsonReply(201, attemptDto('abandoned', 0)));
+    const before = w.fakeApi.count(ABANDON);
+    const other = makeWorld();
+    other.fs.files = new Map(w.fs.files);
+    await other.lockdown.loadPending();
+    other.fakeApi.on(
+      'POST /auth/login',
+      jsonReply(200, {
+        ...loginBody(1),
+        user: { id: 'f'.repeat(24), name: 'B', role: 'employee' },
+      }),
+    );
+    await other.session.login({ email: 'b@example.com', password: 'x' });
+    other.fakeApi.on(ABANDON, jsonReply(201, attemptDto('abandoned', 0)));
+    await other.lockdown.retryPending();
+    expect(other.fakeApi.count(ABANDON)).toBe(0);
+    expect(other.lockdown.getPending()).toHaveLength(1);
+    expect(w.fakeApi.count(ABANDON)).toBe(before);
+  });
+
+  it('entries without a user (written by an older build) are discarded on load', async () => {
+    const w = makeWorld();
+    w.fs.files.set(
+      PENDING_FILE,
+      Buffer.from(
+        JSON.stringify([{ kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 }]),
+      ),
+    );
+    await w.lockdown.loadPending();
+    expect(w.lockdown.getPending()).toHaveLength(0);
+  });
+
+  it('P5-L7: parking an active quiz for a restart records a pending abandon first', async () => {
+    const w = await active();
+    await w.lockdown.parkActiveForRestart();
+    expect(w.lockdown.getPending()).toEqual([
+      { userId: OID.user, kind: 'quiz', moduleId: OID.module1, sessionId: OID.session1 },
+    ]);
+    expect(w.fs.text(PENDING_FILE)).toContain(OID.session1);
+    // Nothing active: nothing to park.
+    const idle = await released();
+    await idle.lockdown.parkActiveForRestart();
+    expect(idle.lockdown.getPending()).toHaveLength(0);
   });
 });

@@ -68,8 +68,9 @@ jobs:
             ${{ github.workspace }}\.cache\mongodb-binaries
           key: ${{ runner.os }}-e2e-bins-${{ hashFiles('package-lock.json') }}
       - run: npm ci
-      # Also builds the server dist the harness runs (server/dist/src/testing/e2eServer.js).
       - run: npm run build
+      # The e2e harness is not part of the production build (P5-I6); it is emitted separately.
+      - run: npm run build:e2e -w @csense/server
       - run: npm run test:e2e
       # Rebuilds the desktop app in styleguide mode and runs axe (incl. colour contrast) in Electron.
       # The plain test:e2e run above skips this spec because the production build has no styleguide.

@@ -81,7 +81,8 @@ export function decideInput(
     // Zoom (WCAG 1.4.4): Ctrl+Plus, Ctrl+Minus, Ctrl+0.
     if (ZOOM_KEYS.has(key)) return allow;
     if (key === '0' && !shift) return allow;
-    if (pasteOk && !shift && key.toLowerCase() === 'v') return allow;
+    // `code` also matches on non-Latin layouts (Arabic, Cyrillic), where `key` is not "v".
+    if (pasteOk && !shift && (key.toLowerCase() === 'v' || input.code === 'KeyV')) return allow;
     // Editing in the Login inputs only.
     if (profile === 'gate' && !shift && (key.toLowerCase() === 'a' || key.toLowerCase() === 'z')) {
       return allow;

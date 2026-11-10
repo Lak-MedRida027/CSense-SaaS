@@ -229,3 +229,23 @@ export async function waitForCryptoKeyFlush(userDataDir: string): Promise<void> 
   }
   throw new Error('safeStorage key was not committed to Local State');
 }
+
+/**
+ * Kills every Electron process started from THIS worktree's electron binary (by executable path),
+ * including instances the app relaunched on its own, which Playwright does not track.
+ */
+export function killWorktreeElectron(): void {
+  if (process.platform !== 'win32') return;
+  const dist = join(process.cwd(), '..', 'node_modules', 'electron', 'dist').replace(/\//g, '\\');
+  spawnSync(
+    'powershell',
+    [
+      '-NoProfile',
+      '-Command',
+      `$d = [IO.Path]::GetFullPath('${dist.replace(/'/g, "''")}'); ` +
+        "Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($d, 'OrdinalIgnoreCase') } | " +
+        'ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }',
+    ],
+    { stdio: 'ignore' },
+  );
+}

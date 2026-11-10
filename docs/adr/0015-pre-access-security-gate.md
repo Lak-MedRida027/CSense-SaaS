@@ -59,6 +59,15 @@ CSense is a user-space Electron application. It cannot replace the Windows logon
 10. **Offline.** Default: fail open after a 120 s grace with an explicit "Continue offline", re-locking as soon as the API answers and no clearance exists. A build flag selects fail-closed.
 11. **Routes.** `GET /gate/status` (pure read), `POST /gate/challenge` (new, idempotent get-or-create), `POST /gate/attempts`, and the admin restore.
 
+## Amendments after the Phase 5 security review (2026-11-10)
+- **P5-M2, grading always persists.** A wrong answer is always compare-and-set (attempt consumed, answer recorded) before anything that can fail. If no next question can be drawn, the run is left open with `current: null`, the graded response reports `required`, and the next `POST /gate/challenge` answers 503. Grading never answers 503, so there is no free "wrong" oracle.
+- **P5-L3 and P5-L6, the flag is a cache with two repairs.** Restore writes a `gate` reconcile marker when clearing the flag fails. The sweeper also scans (bounded, indexed, paged) for restricted unrestored runs whose employee lacks the matching `gateRestriction` or whose escalation is missing, and for flags that point at runs restored in the last 30 days, and reconciles those employees.
+- **P5-L4, access never returns without its record.** Restore order is claim, audit (key `gate:restore:<run>:<claim time>`), clear flag, then the administrator note on the escalation. If the audit cannot be written the claim is rolled back and the escalation gets a "Restore rolled back" note instead. If the rollback itself fails, the flag is still set, and `repairGate` writes the missing `gate.access_restored` entry (actor = `restoredBy`, `repaired: true`) before it clears the flag.
+- **P5-L5.** After writing the flag, the writer re-reads the run and clears the flag if a restore completed in between.
+- **Offline-release reporting (P5-M1).** `POST /gate/offline-releases` records a warning `gate.offline_release` audit entry (idempotent per user and instant, time-window checked, rate limited per employee). A restricted employee who got in offline also triggers a `retriggered` event on their `gate_access_restricted` escalation and a security-team notice.
+- **P5-I4, challenge TTL.** `GATE_CHALLENGE_TTL` (default 10m): an expired challenge is stale (409), consumes nothing, and is replaced on the next challenge request.
+- **P5-I7.** Gate XP facts are read newest first, so the bounded read can only drop the oldest.
+
 ## Consequences
 - Positive:
   - The pass, fail and restriction decisions are server-authoritative and tamper-resistant: no client fields, single-use challenges, attempts that cannot be reset.
@@ -69,3 +78,15 @@ CSense is a user-space Electron application. It cannot replace the Windows logon
   - Fail-open offline is bypassable by unplugging the network for the day (it is logged locally).
   - Restriction blocks a person until an administrator acts, and Phase 5's alert is in-app plus a log line until Phase 7 adds OS notifications for administrators.
   - One route beyond the reserved contract.
+
+## Amendment: Phase 5 security review, desktop findings (P5-M1, P5-L1, P5-L2)
+- Status: Accepted 2026-11-10 (desktop track). The server-side offline-release route is amended in the backend section of this ADR.
+
+1. **A restricted employee cannot start offline to get the workstation back (P5-M1).** D5-5 (restricted is a full block until an administrator restores access) outranks D5-12 (fail open after 120 s).
+   - Main keeps the **last server-known gate state per user** (restricted, cleared until X, or required), written from every gate status and attempt response. It is encrypted with `safeStorage` like the token store and never written in plaintext; with no OS encryption it is memory-only.
+   - "Continue offline" is not offered, and `gate.continueOffline` is refused, when the last known state for the stored user is `restricted`. With no stored state D5-12 is unchanged (fail open after the grace period).
+   - Every offline release is queued (encrypted, per user) and reported with `POST /gate/offline-releases { releasedAt, reason: 'api_unreachable', durationSeconds }` when the API next answers. Delivery is at least once and idempotent per `releasedAt`; entries for another user are never sent under a different bearer token; a report the server refuses as malformed is dropped.
+   - Residual risk, accepted and documented in the README: making only the API unreachable still works for an employee who has never been restricted on that machine. The release is audited after the fact.
+2. **An answer that lands after sign-out is discarded (P5-L1).** `submitAnswer` captures a session generation before the request and drops the result if any session change happened meanwhile, so a late grant can never move the gate of a signed-out (or different) user.
+3. **Identity changes re-gate (P5-L2).** `session.login` is refused unless main's gate is waiting at the Login step, and any sign-in that still arrives while the workstation is released re-locks and re-checks the gate (an administrator becoming an employee, or another account).
+

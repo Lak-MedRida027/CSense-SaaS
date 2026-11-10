@@ -52,3 +52,13 @@ CLAUDE.md requires a kiosk/lockdown mode that restricts shortcuts, the clipboard
   - Clearing the clipboard discards the user's unrelated clipboard content (they are told on the quiz intro).
   - Synthetic e2e input may not exercise the exact real-keyboard path, so the filter's decision table is unit-tested and real keys go on the manual checklist.
   - Several limits remain until managed deployment.
+
+## Amendment: Phase 5 security review, desktop findings (P5-L7, P5-I5, paste layouts)
+- Status: Accepted 2026-11-10 (desktop track).
+
+1. **`window.close()` (P5-L7).** Electron destroys the window when page script calls `window.close()`, with no event main can veto, and `allowScriptsToCloseWindows` is not configurable.
+   - Layer 1 is a redefinition of `close` on the global object (it is an own property of the global, not of `Window.prototype`) in the main window and in every frame Electron reports. It is **not a boundary**: `iframe.contentWindow.close.call(window)` reaches the native function of another realm and does close the window (measured on Electron 45, and covered by an e2e). `frame-src 'none'` stops loaded frames, but an initial about:blank frame is usable in the same task it is created in.
+   - Layer 2 is the control: when the window is destroyed and the app is not quitting, main records the active quiz as a **pending abandon** (`pending.json`, ids and user only), flushes its log, then relaunches the app (unpackaged runs restart from the app path, without tool-specific switches) and exits. The gate is back within seconds, and the attempt is closed server-side at the next start. An e2e checks both the iframe variant and a plain `destroy()`.
+2. **Pending abandons are bound to their user (P5-I5).** Each entry stores the `userId` of the session owner. On replay, entries of a different user are skipped (and kept); entries written without a user by an older build are discarded.
+3. **Paste on non-Latin layouts.** For the Login-step paste decision only, `code === 'KeyV'` also counts as "V" (Arabic, Cyrillic and Hebrew layouts report another `key`). Shift+Insert is layout independent. Every block decision is unchanged.
+
