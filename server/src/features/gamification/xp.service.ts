@@ -19,10 +19,12 @@ export interface XpService {
   recomputeXp(userId: string, opts?: { attemptId?: string; force?: boolean }): Promise<XpUpdate>;
 }
 
-export function createXpService(): XpService {
+export function createXpService(options: { timeZone?: string } = {}): XpService {
   return {
     async recomputeXp(userId, opts = {}) {
-      const result = computeXp(await loadXpFacts(userId));
+      const result = computeXp(await loadXpFacts(userId), {
+        ...(options.timeZone ? { timeZone: options.timeZone } : {}),
+      });
       const total = result.total;
       const set = { totalXP: total, level: levelForXp(total) };
       const id = new Types.ObjectId(userId);

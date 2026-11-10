@@ -48,10 +48,18 @@ export async function authenticateBearer(
   if (claims === null) return null;
 
   // D-5: the database is the source of truth for activity, role and session on every request.
-  const user = await User.findById(claims.sub).select('role isActive').lean();
+  // `gateRestriction` (employees only) rides along: it costs no extra query (ADR 0015, D5-8).
+  const user = await User.findById(claims.sub)
+    .select('role isActive gateRestriction')
+    .lean<{ role: AuthContext['role']; isActive: boolean; gateRestriction?: unknown }>();
   if (!user || !user.isActive || user.role !== claims.role) return null;
   if (!(await isSessionActive(deps, claims.sid, claims.sub))) return null;
-  return { userId: claims.sub, role: user.role, sessionId: claims.sid };
+  return {
+    userId: claims.sub,
+    role: user.role,
+    sessionId: claims.sid,
+    accessRestricted: user.role === 'employee' && user.gateRestriction != null,
+  };
 }
 
 function tokenResponse(

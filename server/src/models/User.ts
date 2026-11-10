@@ -73,6 +73,18 @@ const employeeSchema = new Schema(
   {
     totalXP: { type: Number, default: 0, min: 0, validate: intValidator },
     level: { type: String, enum: LEVELS, default: LEVELS[0] },
+    // Cache of the latest gate run being restricted and not restored (ADR 0015). The access gate
+    // reads it on every request; reconcile repairs it from gateruns, the record of truth.
+    gateRestriction: {
+      type: new Schema(
+        {
+          restrictedAt: { type: Date, required: true },
+          runId: { type: Schema.Types.ObjectId, ref: 'GateRun', required: true },
+        },
+        { _id: false, strict: 'throw' },
+      ),
+      default: null,
+    },
   },
   { strict: 'throw' },
 );

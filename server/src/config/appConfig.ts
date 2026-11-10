@@ -18,6 +18,14 @@ export interface AppConfig {
     disengagedAfterDays: number;
     requireSecondAdmin: boolean;
   };
+  gate: {
+    /** Wrong answers allowed per run before access is restricted. */
+    maxAttempts: number;
+    clearanceTtlSeconds: number;
+    restoreRequiresAck: boolean;
+    /** IANA zone for gate XP days and reference ids. */
+    orgTimeZone: string;
+  };
   maintenance: {
     /** In-process reconcile sweeper period in seconds; 0 disables it. */
     sweepIntervalSeconds: number;
@@ -66,6 +74,12 @@ export function toAppConfig(env: Env): AppConfig {
       cooldownWindowSeconds: parseDuration(env.ESCALATE_COOLDOWN_WINDOW),
       disengagedAfterDays: env.DISENGAGED_AFTER_DAYS,
       requireSecondAdmin: env.ESCALATION_REQUIRE_SECOND_ADMIN,
+    },
+    gate: {
+      maxAttempts: env.GATE_MAX_ATTEMPTS,
+      clearanceTtlSeconds: parseDuration(env.GATE_CLEARANCE_TTL),
+      restoreRequiresAck: env.GATE_RESTORE_REQUIRES_ACK,
+      orgTimeZone: env.ORG_TIMEZONE,
     },
     maintenance: {
       sweepIntervalSeconds:

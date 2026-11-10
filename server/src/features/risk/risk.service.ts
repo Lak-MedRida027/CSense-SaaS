@@ -14,6 +14,7 @@ import { digestFacts, loadRiskFacts } from './riskFacts.service.js';
 export type RiskTrigger =
   | { type: 'attempt'; refId: string }
   | { type: 'critical_event'; refId: string | null }
+  | { type: 'gate_run'; refId: string }
   | { type: 'reconcile' | 'model_upgrade' | 'config_change'; refId?: null };
 
 export interface RecomputeOutcome {

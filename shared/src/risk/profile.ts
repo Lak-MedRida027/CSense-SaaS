@@ -9,8 +9,9 @@ import {
 } from '../constants/risk.js';
 import type { AssessmentKind } from '../constants/assessment.js';
 import type { AttemptEndReason } from '../constants/learning.js';
-import { behaviouralScore, summariseConduct } from './behavioural.js';
+import { behaviouralScoreV2, summariseConduct } from './behavioural.js';
 import { classifyRisk } from './classify.js';
+import type { GateRunFact } from './gate.js';
 import {
   computeComposite,
   effectiveWeights,
@@ -48,8 +49,8 @@ export interface RiskFacts {
     enabled: boolean;
     outcomes: readonly { outcome: SimulationOutcome; occurredAt: string }[];
   };
-  /** Phase 5 widens this to the gate signals. */
-  gate: null;
+  /** Closed gate runs (any number; the model reads the most recent window). Null: no gate data. */
+  gate: { runs: readonly GateRunFact[] } | null;
 }
 
 export interface RiskEvidence {
@@ -78,13 +79,13 @@ export interface RiskResult {
 }
 
 /**
- * The whole risk model v1 as one pure function of facts (ADR 0010). Higher means riskier. The
+ * The whole risk model (v2) as one pure function of facts (ADR 0010). Higher means riskier. The
  * result does not depend on the order of the input attempts.
  */
 export function computeRiskProfile(facts: RiskFacts): RiskResult {
   const scores: DimensionScores = {
     knowledge: knowledgeScore(facts.attempts),
-    behavioural: behaviouralScore(facts.attempts, facts.cooldowns.length),
+    behavioural: behaviouralScoreV2(facts.attempts, facts.cooldowns.length, facts.gate?.runs ?? []),
     simulation: facts.simulation.enabled ? simulationScore(facts.simulation.outcomes) : null,
     engagement: engagementScore(facts.curriculum),
   };

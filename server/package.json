@@ -11,6 +11,7 @@
     "bootstrap:admin:dev": "tsx src/scripts/bootstrapAdmin.ts",
     "seed:learning:dev": "tsx src/scripts/seedLearning.ts",
     "seed:badges:dev": "tsx src/scripts/seedBadges.ts",
+    "seed:gate:dev": "tsx src/scripts/seedGate.ts",
     "gamification:reconcile": "node dist/src/scripts/reconcileGamification.js",
     "gamification:reconcile:dev": "tsx src/scripts/reconcileGamification.ts",
     "audit:verify": "node dist/src/scripts/verifyAudit.js",

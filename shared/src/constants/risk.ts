@@ -50,7 +50,8 @@ export const RISK_LEVEL_TO_STATE: Readonly<Record<RiskLevel, GovernanceState>> =
 export const RISK_SCORE_MIN = 0;
 export const RISK_SCORE_MAX = 100;
 
-export const RISK_MODEL_VERSION = 1;
+/** Model v2 (Phase 5, ADR 0017): Behavioural blends the gate signals with assessment conduct. */
+export const RISK_MODEL_VERSION = 2;
 
 /** Classified only after first attempts on this many assessments (or all of them if fewer exist). */
 export const RISK_MIN_FIRST_ATTEMPTS = 2;

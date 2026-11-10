@@ -16,6 +16,7 @@ export const RISK_TRIGGER_TYPES = [
   'attempt',
   'reconcile',
   'critical_event',
+  'gate_run',
   'model_upgrade',
   'config_change',
 ] as const;

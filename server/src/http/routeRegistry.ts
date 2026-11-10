@@ -35,6 +35,11 @@ export interface RouteDef<B = unknown, P = unknown, Q = unknown> {
   access: Access;
   schemas?: { body?: ZodType<B>; params?: ZodType<P>; query?: ZodType<Q> };
   limiter?: LimiterName;
+  /**
+   * Employees whose access is restricted (a failed security gate, ADR 0015) get 403 ACCESS_RESTRICTED
+   * on every route except those that set this. Only for `employee` or `authenticated` routes.
+   */
+  allowWhileRestricted?: true;
   /** Return a value to send it as 200 JSON, or write to `res` and return nothing. */
   handler: (ctx: RouteContext<B, P, Q>, req: Request, res: Response) => unknown;
 }
@@ -57,6 +62,7 @@ const routeShapeSchema = z.object({
   path: z.string().startsWith('/'),
   access: accessSchema,
   limiter: z.enum(['login', 'refresh', 'sessionStart']).optional(),
+  allowWhileRestricted: z.literal(true).optional(),
   handler: z.custom((v) => typeof v === 'function', 'must be a function'),
 });
 
@@ -69,6 +75,16 @@ export function assertRouteDefs(defs: readonly RouteDef[]): void {
     if (!parsed.success) {
       const why = parsed.error.issues.map((i) => i.path.join('.') || 'route').join(', ');
       throw new Error(`Invalid ${label}: ${why}`);
+    }
+    if (def.allowWhileRestricted) {
+      const employeeReachable =
+        def.access.kind === 'authenticated' ||
+        (def.access.kind === 'role' && def.access.roles.includes('employee'));
+      if (!employeeReachable) {
+        throw new Error(
+          `Invalid ${label}: allowWhileRestricted only applies to employee or authenticated routes`,
+        );
+      }
     }
     const key = `${def.method} ${def.path}`;
     if (seen.has(key)) throw new Error(`Duplicate ${label}`);

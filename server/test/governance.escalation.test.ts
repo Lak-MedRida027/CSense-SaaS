@@ -67,7 +67,7 @@ describe('risk escalation (entering High)', () => {
       riskLevel: 'High',
       previousLevel: null,
       compositeScore: 71,
-      modelVersion: 1,
+      modelVersion: 2,
     });
     expect(esc.events.map((ev) => [ev.type, ev.audited])).toEqual([['opened', true]]);
 
@@ -198,7 +198,7 @@ describe('risk escalation (entering High)', () => {
 });
 
 describe('critical events', () => {
-  it('GE6: a gate restriction opens a critical management escalation, audited once', async () => {
+  it('GE6: a gate restriction opens a critical security-team escalation (D5-6), audited once', async () => {
     const t = await buildGamificationApp();
     const emp = await createEmployee(creds);
     const input = {
@@ -216,7 +216,7 @@ describe('critical events', () => {
     expect(first(escalations)).toMatchObject({
       reason: 'gate_access_restricted',
       severity: 'critical',
-      reviewTier: 'management',
+      reviewTier: 'security_team',
       scopeKey: null,
     });
     const onUser = await auditEntriesFor(emp.id);

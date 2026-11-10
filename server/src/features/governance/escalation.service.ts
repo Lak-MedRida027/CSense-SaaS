@@ -3,6 +3,7 @@ import { Types, trusted } from 'mongoose';
 import type { Logger } from 'pino';
 import {
   applyEscalationAction,
+  CRITICAL_EVENT_POLICY,
   ESCALATION_ADMIN_RESERVE,
   ESCALATION_EVENTS_MAX,
   type DimensionCoverageMap,
@@ -365,11 +366,13 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
           occurredAt: input.occurredAt,
         },
       });
+      // Severity and review tier come from the shared policy table (D5-6, ADR 0015).
+      const policy = CRITICAL_EVENT_POLICY[input.reason];
       const { escalationId } = await openOrRetrigger({
         userId: subject,
         reason: input.reason,
-        severity: 'critical',
-        reviewTier: 'management',
+        severity: policy.severity,
+        reviewTier: policy.reviewTier,
         scopeKey: null,
         dedupeKey: `${input.reason}:${input.sourceRef.type}:${input.sourceRef.id}`,
         context: {},

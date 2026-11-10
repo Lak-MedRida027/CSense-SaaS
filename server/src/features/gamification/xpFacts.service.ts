@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import type { AttemptFact, XpFacts, ModuleXpFacts, AttemptEndReason } from '@csense/shared';
-import { QuizAttempt, UserProgress } from '../../models/index.js';
+import { GateRun, QuizAttempt, UserProgress } from '../../models/index.js';
 
 interface AttemptRow {
   _id: Types.ObjectId;
@@ -37,13 +37,19 @@ const byOrder = (a: AttemptRow, b: AttemptRow): number =>
  */
 export async function loadXpFacts(userId: string): Promise<XpFacts> {
   const owner = new Types.ObjectId(userId);
-  const [rows, progress] = await Promise.all([
+  const [rows, progress, gateRuns] = await Promise.all([
     QuizAttempt.find({ userId: owner })
       .select('type refId moduleId attemptNumber endReason score passed attemptedAt')
       .sort({ _id: 1 })
       .limit(MAX_ATTEMPTS)
       .lean<AttemptRow[]>(),
     UserProgress.find({ userId: owner }).select('moduleId exerciseAnswers').lean(),
+    // Passed gate runs earn the daily gate XP (ADR 0017). Facts only grow: runs are never deleted.
+    GateRun.find({ userId: owner, status: 'passed' })
+      .select('firstAnswerCorrect closedAt')
+      .sort({ closedAt: 1, _id: 1 })
+      .limit(MAX_ATTEMPTS)
+      .lean<{ _id: Types.ObjectId; firstAnswerCorrect?: boolean | null; closedAt: Date }[]>(),
   ]);
 
   const byModule = new Map<string, AttemptRow[]>();
@@ -82,6 +88,14 @@ export async function loadXpFacts(userId: string): Promise<XpFacts> {
   const finalFirst = sortedFinals[0];
   return {
     modules,
+    gate: {
+      runs: gateRuns.map((g) => ({
+        runId: g._id.toHexString(),
+        status: 'passed' as const,
+        firstAnswerCorrect: g.firstAnswerCorrect === true,
+        closedAt: g.closedAt.toISOString(),
+      })),
+    },
     finalTest: finalFirst
       ? {
           firstAttempt: toFact(finalFirst),

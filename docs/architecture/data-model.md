@@ -240,9 +240,20 @@ the key. Test cleanup uses driver-level `deleteMany`.
 | Badge → Module | Referenced | As drawn |
 | Employee earns Badge | Own collection `badgeawards` (Phase 4) | Unique `{userId, badgeId}` makes the award exactly-once and permanent |
 
+### Phase 5: pre-access security gate (ADR 0015, 0017; not in the diagram)
+
+**`gatequestions` (GateQuestion).** `prompt` (1..1000), `options` (3..6 strings, 1..300), `correctAnswer` (index, `select: false`), `explanation` (1..1000, `select: false`), `topic` (optional), `isActive`. Index: `{isActive:1}`. `strict: 'throw'`.
+
+**`gateruns` (GateRun, mutable, compare-and-set).** `userId`, `status` (`open` | `passed` | `restricted`), `maxAttempts` (snapshot of `GATE_MAX_ATTEMPTS`), `attemptsUsed`, `current` (`{challengeId, questionId, prompt, options[], optionCount, correctAnswer (select:false), servedAt}` or null once closed; `prompt` and `options` snapshot what was served, in the served order: options are shuffled per challenge and the key refers to that order), `servedQuestionIds` (max 10), `firstAnswerCorrect`, `openedAt`, `closedAt`, `clearedUntil`, `escalationId`, `restoredAt`, `restoredBy`, `version`. A restored run stays `restricted` (history). Indexes: `{userId:1}` **unique, partial `status: 'open'`** (one open run per employee, name `one_open_run`) · `{userId:1,closedAt:-1}` · `{userId:1,status:1,clearedUntil:-1}` · `{status:1,restoredAt:1}`. `toJSON` never emits the key snapshot.
+
+**`gateanswers` (GateAnswer, append-only).** `userId`, `runId`, `attemptIndex`, `challengeId`, `questionId`, `selectedIndex`, `correct`, `answeredAt`. Indexes: `{runId:1,attemptIndex:1}` **unique** (name `run_attempt_unique`) · `{userId:1,answeredAt:-1}`. Record of truth for risk and gate XP (rebuildable).
+
+**`users` (Employee), new field.** `gateRestriction: { restrictedAt, runId } | null`: a cache of "the latest restricted run is not restored", read by the access gate on every request and repaired by reconcile from `gateruns`.
+
+Start-up verification (`db/learningIndexes.ts`) now also checks the two unique gate indexes; `/health/ready` reports not-ready without them.
+
 ## Planned additions (not in the diagram; built in the owning phase)
 Refresh-token sessions and the append-only audit log were added in Phase 2 (above).
 
-gate state (5) ·
 onboarding flag (6) · module assignments (7) · phishing outcomes and review cycles (flagged) ·
 (interactive exercise data landed in Phase 3). See the Phase 0 plan section 3.4.

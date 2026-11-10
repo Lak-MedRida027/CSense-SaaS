@@ -36,11 +36,11 @@ async function elevated(overrides: Parameters<typeof buildGamificationApp>[0] = 
 
 /** An acknowledged critical, management-tier escalation (a gate restriction). */
 async function critical() {
-  const t = await buildGamificationApp();
+  const t = await buildGamificationApp({ features: { phishing: true, continuousReview: false } });
   const emp = await createEmployee(creds);
   const { escalationId } = await t.g.escalations.recordCriticalEvent({
     userId: emp.id,
-    reason: 'gate_access_restricted',
+    reason: 'simulation_credentials_submitted',
     sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
     occurredAt: new Date(),
   });
@@ -134,11 +134,11 @@ describe('P4-L8: separation of duties on resolve', () => {
   });
 
   it('SD5: resolving such an escalation straight from open is refused with 403 for any administrator; others stay 409', async () => {
-    const t = await buildGamificationApp();
+    const t = await buildGamificationApp({ features: { phishing: true, continuousReview: false } });
     const emp = await createEmployee(creds);
     const { escalationId } = await t.g.escalations.recordCriticalEvent({
       userId: emp.id,
-      reason: 'gate_access_restricted',
+      reason: 'simulation_credentials_submitted',
       sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
       occurredAt: new Date(),
     });
@@ -194,11 +194,14 @@ describe('P4-L8: separation of duties on resolve', () => {
       (await AuditLog.findOne({ action: 'escalation.resolved' }).lean())?.metadata,
     ).not.toHaveProperty('sameAdmin');
 
-    const t = await buildGamificationApp({ governance: { requireSecondAdmin: false } });
+    const t = await buildGamificationApp({
+      features: { phishing: true, continuousReview: false },
+      governance: { requireSecondAdmin: false },
+    });
     const emp = await createEmployee(creds);
     const made = await t.g.escalations.recordCriticalEvent({
       userId: emp.id,
-      reason: 'gate_access_restricted',
+      reason: 'simulation_credentials_submitted',
       sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
       occurredAt: new Date(),
     });

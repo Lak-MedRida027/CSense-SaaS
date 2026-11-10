@@ -5,7 +5,7 @@ Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs
 **Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
 routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
 `GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only); Phase 4 the
-8 routes for XP, badges, risk profiles, escalations and the audit log. These 31 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+8 routes for XP, badges, risk profiles, escalations and the audit log; Phase 5 the 4 gate routes below. These 35 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
@@ -69,6 +69,11 @@ enumeration. Stack traces and internal messages are never returned.
 | `SESSION_CLOSED` | 409 | submit or abandon on a session already submitted, abandoned or expired (replay, race loser) |
 | `SESSION_EXPIRED` | 409 | submission after the session time limit; an `expired` attempt is recorded |
 | `RATE_LIMITED` (session routes) | 429 | more than `SESSION_START_RATE_MAX` quiz or final-test session starts per employee per window; `Retry-After` set |
+| `ACCESS_RESTRICTED` | 403 | employee route while the latest gate run is restricted and not restored (allowed: `/auth/me`, `/config/features`, `/gate/status`, `/gate/challenge`) |
+| `GATE_CHALLENGE_STALE` | 409 | `POST /gate/attempts` for a challenge that is not the run's current one (replay, race loser, closed run, another employee's id). Nothing is consumed |
+| `GATE_UNAVAILABLE` | 503 | fewer active gate questions than `GATE_MAX_ATTEMPTS`; the desktop treats it like offline (D5-12) |
+| `NOT_RESTRICTED` | 409 | restore-access for an employee with no unrestored restricted run |
+| `ESCALATION_NOT_ACKNOWLEDGED` | 409 | restore-access while the run's escalation is still `open` (`GATE_RESTORE_REQUIRES_ACK`) |
 | `ASSESSMENT_COOLDOWN` | 409 | `ASSESSMENT_COOLDOWN_AFTER_FAILS` consecutive failed attempts at this quiz or final test; sent with `Retry-After` (seconds) and `details: { retryAt }` (ISO time). A pass resets the streak |
 | `CONFLICT` | 409 | unique constraint (email in use), a concurrent quiz-session start that lost the race, or a stale `expectedVersion` on an escalation |
 | `SEPARATION_OF_DUTIES` | 403 | resolving an escalation by the administrator who acknowledged it (or by an account that administrator created), or straight from `open`, when it is critical, management-tier, or the resolution is anything other than `remediated`. State is unchanged and a warning `escalation.resolve_refused` is audited (reason `same_admin`, `created_by_acknowledger` or `not_acknowledged`; no note text). Not enforced when `ESCALATION_REQUIRE_SECOND_ADMIN=false` (the resolved event is then marked `sameAdmin`) |
@@ -94,12 +99,38 @@ enumeration. Stack traces and internal messages are never returned.
 | POST | `/auth/logout` (idempotent; 204 even for an unknown token) | `{refreshToken}` | 204 | refresh | 2 |
 | GET | `/auth/me` | none | 200 `UserDTO` (`EmployeeDTO` / `AdministratorDTO`) | auth | 2 |
 
-### Interact with Security Gate / Escalate Restricted Access
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| GET | `/gate/status` | employee | 5 |
-| POST | `/gate/attempts` | employee (pre-auth flow per U15) | 5 |
-| POST | `/admin/users/:userId/restore-access` | admin | 5/7 |
+### Interact with Security Gate / Escalate Restricted Access (Phase 5; ADR 0015, 0017)
+The gate is **pre-access, post-authentication** (U15): the desktop window locks at start-up, the challenge is served to a signed-in employee. Failed logins never count as gate attempts. Administrators are released without a challenge, and every `/gate/*` route is employee-only.
+
+| Method | Route | Auth | Body | Success | Errors |
+|---|---|---|---|---|---|
+| GET | `/gate/status` | employee, allowed while restricted | none | 200 `GateStatusDTO` (pure read, never creates a run) | 401, 403 (administrator) |
+| POST | `/gate/challenge` | employee, allowed while restricted | none | 200 `GateStatusDTO`. Get-or-create the open run's current challenge; idempotent (same `challengeId` until answered); opens nothing while `granted` or `restricted`. | 503 `GATE_UNAVAILABLE` |
+| POST | `/gate/attempts` | employee | `{ challengeId, selectedIndex }` (strict) | 201 `GateAttemptResultDTO` | 400 (shape; index out of range for the served question, nothing consumed), 409 `GATE_CHALLENGE_STALE`, 403 `ACCESS_RESTRICTED` |
+| POST | `/admin/users/:userId/restore-access` | admin | `{ note }` (1..2000, no control characters) | 200 `RestoreAccessDTO` | 400, 404 (unknown user or not an employee), 409 `NOT_RESTRICTED`, 409 `ESCALATION_NOT_ACKNOWLEDGED` |
+
+`POST /gate/challenge` is new in Phase 5 (not in the earlier reserved list): it keeps `GET /gate/status` free of side effects.
+
+```ts
+GateStatusDTO = {
+  state: 'required' | 'challenge' | 'granted' | 'restricted',
+  maxAttempts: number, attemptsRemaining: number,
+  challenge: { challengeId: string, prompt: string, options: string[] } | null, // only in 'challenge'
+  clearedUntil: string | null,                                                   // ISO; only in 'granted'
+  restricted: { referenceId: string, since: string } | null,                     // only in 'restricted'
+}
+GateAttemptResultDTO = { correct: boolean, explanation: string, xpEarned: number, status: GateStatusDTO }
+RestoreAccessDTO = { userId: string, runId: string, escalationId: string, restoredAt: string }
+```
+Schemas (strict, frozen in Step 0): `shared/src/schemas/gate.ts` (requests, authoring) and `shared/src/schemas/gateResponses.ts` (`gateStatusSchema`, `gateAttemptResultSchema`, `restoreAccessSchema`). No response ever contains the correct option, before or after an answer; the `explanation` teaches the concept without naming it. `referenceId` is `GATE-<YYYYMMDD in ORG_TIMEZONE>-<last 6 hex of the run id, upper case>`; administrators find the run through `escalation.sourceRef.id = runId` (`GET /admin/escalations?reason=gate_access_restricted&userId=...`).
+
+Semantics:
+- **States.** `required`: no open run and no valid clearance (a challenge is not issued yet; call `POST /gate/challenge`). `challenge`: an open run with a current question. `granted`: a pass with `clearedUntil` in the future. `restricted`: the latest run is restricted and not restored.
+- **Runs and attempts.** One open run per employee; it survives restarts, sign-outs and other workstations until it is passed or restricted. `GATE_MAX_ATTEMPTS` (default 3) attempts per run; every attempt serves a different question. The wrong answer that uses the last attempt restricts the run.
+- **Clearance.** A pass sets `clearedUntil = now + GATE_CLEARANCE_TTL` (default 12h). The server does **not** require a clearance on learning routes (D5-8); the workstation cover is the client's job.
+- **Restricted access (`ACCESS_RESTRICTED`, 403).** While the latest run is restricted and not restored, every employee route answers 403 `ACCESS_RESTRICTED` except `GET /auth/me`, `GET /config/features`, `GET /gate/status` and `POST /gate/challenge` (`/auth/refresh` and `/auth/logout` are not affected). The restriction survives logout, a new login and another workstation. Restriction opens a critical `gate_access_restricted` escalation for the security team (D5-6) and audits `governance.critical_event_recorded` and `escalation.opened`.
+- **Restore.** Needs the escalation acknowledged (`GATE_RESTORE_REQUIRES_ACK`, default true) and a note; audits `gate.access_restored` (warning, note SHA-256 only), appends a `note` event to the escalation and does not resolve it. The next `POST /gate/challenge` opens a fresh run with full attempts.
+- **Gate XP.** `xpEarned` is 10 for the first pass of an organisation-local day whose first answer was correct, otherwise 0.
 
 ### Learning engine (Phase 3; ADR 0006, 0007, 0008)
 All routes are role `employee` (an administrator token gets 403). Identity always comes from the token;
@@ -215,7 +246,7 @@ never recompute.
 Administrator-only (ADR 0011). Escalations open when an employee **enters High**, when an employee reaches
 `ESCALATE_AFTER_COOLDOWNS` (default 2) assessment cooldowns on the same quiz or final test within
 `ESCALATE_COOLDOWN_WINDOW` (default 7 days), and for critical events (gate restriction, credentials submitted in a
-simulation; producers arrive with Phase 5 and the phishing flag; `critical`, management tier). Every escalation
+simulation; `critical`; the gate restriction goes to the `security_team` tier (D5-6, ADR 0015), the simulation event stays `management`; the producers are the Phase 5 gate and the phishing flag). Every escalation
 and every state change writes an audit entry (outbox: a failed audit write leaves the event flagged and the sweeper
 completes it; the PATCH then answers 500).
 | Method | Route | Body / query | Success | Errors |

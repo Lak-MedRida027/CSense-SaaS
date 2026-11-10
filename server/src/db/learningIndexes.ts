@@ -9,6 +9,8 @@ import {
   AuditLog,
   BadgeAward,
   Escalation,
+  GateAnswer,
+  GateRun,
   ReconcileMarker,
   RiskProfile,
 } from '../models/index.js';
@@ -47,6 +49,9 @@ export const REQUIRED_LEARNING_INDEXES: readonly RequiredIndex[] = [
   required(Escalation, 'active_scope_unique'),
   required(AuditLog, 'seq_1'),
   required(AuditLog, 'idempotencyKey_1'),
+  // Phase 5: one open gate run per employee, one recorded answer per run attempt.
+  required(GateRun, 'one_open_run'),
+  required(GateAnswer, 'run_attempt_unique'),
 ];
 
 interface IndexDefinition {

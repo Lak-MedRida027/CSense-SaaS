@@ -156,7 +156,7 @@ describe('GET /admin/users/:userId/risk-profile', () => {
       governanceState: 'Red',
       scores: { knowledge: 100, behavioural: 25, simulation: null, engagement: 88 },
       coverage: { simulation: 'disabled', knowledge: 'assessed' },
-      modelVersion: 1,
+      modelVersion: 2,
       effectiveWeightsBp: { knowledge: 4286, behavioural: 3571, simulation: 0, engagement: 2143 },
       nominalWeightsBp: { ...RISK_WEIGHTS_BP },
     });

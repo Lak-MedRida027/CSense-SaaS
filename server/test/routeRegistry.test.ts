@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createApp } from '../src/app.js';
 import {
   ADMIN_ONLY,
+  AUTHENTICATED,
+  EMPLOYEE_ONLY,
   PUBLIC,
   assertRouteDefs,
   defineRoute,
@@ -22,6 +24,45 @@ describe('assertRouteDefs', () => {
         defineRoute({ method: 'post', path: '/y', access: ADMIN_ONLY, handler }),
       ]);
     }).not.toThrow();
+  });
+
+  it('R6: allowWhileRestricted is accepted on employee and authenticated routes only', () => {
+    expect(() => {
+      assertRouteDefs([
+        defineRoute({
+          method: 'get',
+          path: '/a',
+          access: EMPLOYEE_ONLY,
+          allowWhileRestricted: true,
+          handler,
+        }),
+        defineRoute({
+          method: 'get',
+          path: '/b',
+          access: AUTHENTICATED,
+          allowWhileRestricted: true,
+          handler,
+        }),
+      ]);
+    }).not.toThrow();
+    for (const access of [PUBLIC, ADMIN_ONLY]) {
+      expect(() => {
+        assertRouteDefs([
+          defineRoute({ method: 'get', path: '/c', access, allowWhileRestricted: true, handler }),
+        ]);
+      }, access.kind).toThrow(/allowWhileRestricted/);
+    }
+    expect(() => {
+      assertRouteDefs([
+        untyped({
+          method: 'get',
+          path: '/d',
+          access: EMPLOYEE_ONLY,
+          allowWhileRestricted: false,
+          handler,
+        }),
+      ]);
+    }).toThrow(/allowWhileRestricted/);
   });
 
   it('R1: a def without access throws', () => {

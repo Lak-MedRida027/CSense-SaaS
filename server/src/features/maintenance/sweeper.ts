@@ -1,6 +1,7 @@
 import { Types, trusted } from 'mongoose';
 import type { Logger } from 'pino';
 import { ReconcileMarker } from '../../models/index.js';
+import { usersWithUnescalatedRestriction } from '../gate/gate.repair.js';
 import type { EscalationService } from '../governance/escalation.service.js';
 import type { ReconcileService } from './reconcile.service.js';
 
@@ -118,6 +119,24 @@ export function createSweeper(deps: SweeperDeps): Sweeper {
           deps.logger.error({ err: e, userId }, 'Could not back off reconcile marker');
         });
       }
+    }
+
+    // A crash between a gate restriction and its escalation leaves no marker: look for the runs.
+    try {
+      const users = await usersWithUnescalatedRestriction(
+        new Date(deps.clock().getTime() - OUTBOX_GRACE_MS),
+      );
+      for (const userId of users) {
+        try {
+          await deps.reconcile.reconcileUser(userId);
+          summary.reconciled += 1;
+        } catch (err) {
+          summary.failed += 1;
+          deps.logger.error({ err, userId }, 'Gate restriction repair failed');
+        }
+      }
+    } catch (err) {
+      deps.logger.error({ err }, 'Gate restriction scan failed');
     }
 
     // Time passing is the trigger for disengagement, so it needs a periodic scan: a bounded,

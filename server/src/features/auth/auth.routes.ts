@@ -49,6 +49,7 @@ export function authRoutes(deps: AuthDeps): RouteDef[] {
       method: 'get',
       path: '/auth/me',
       access: AUTHENTICATED,
+      allowWhileRestricted: true,
       handler: (ctx) => getCurrentUser(requireAuth(ctx).userId),
     }),
   ];

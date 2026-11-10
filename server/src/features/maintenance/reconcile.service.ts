@@ -19,6 +19,7 @@ import type { EscalationService } from '../governance/escalation.service.js';
 import type { BadgesService } from '../gamification/badges.service.js';
 import type { XpService } from '../gamification/xp.service.js';
 import { loadXpFacts } from '../gamification/xpFacts.service.js';
+import { repairGate } from '../gate/gate.repair.js';
 import { digestFacts, loadRiskFacts } from '../risk/riskFacts.service.js';
 import type { RiskService, RiskTrigger } from '../risk/risk.service.js';
 import { computeXp, type RiskLevel } from '@csense/shared';
@@ -59,6 +60,8 @@ export interface ReconcileDeps {
   risk: RiskService;
   escalations: EscalationService;
   phishingEnabled: boolean;
+  /** IANA zone for the gate XP days (ORG_TIMEZONE). */
+  orgTimeZone?: string;
 }
 
 interface ProfileRow {
@@ -126,7 +129,9 @@ export function createReconcileService(deps: ReconcileDeps): ReconcileService {
 
     // 2. XP: the projection only goes up, unless forced.
     diff.xpBefore = employee.totalXP || 0;
-    const expected = computeXp(facts).total;
+    const expected = computeXp(facts, {
+      ...(deps.orgTimeZone ? { timeZone: deps.orgTimeZone } : {}),
+    }).total;
     const differs = opts.forceXp ? expected !== diff.xpBefore : expected > diff.xpBefore;
     diff.xpAfter = differs ? expected : diff.xpBefore;
     diff.xpChanged = differs;
@@ -176,6 +181,12 @@ export function createReconcileService(deps: ReconcileDeps): ReconcileService {
           },
         });
       }
+    }
+
+    // 2c. Gate restriction: the user flag and the critical escalation of a restricted run, and a
+    // stale flag of a restored run (ADR 0015). Before the risk step, which reads the same facts.
+    if (await repairGate({ escalations: deps.escalations }, userId, { dryRun })) {
+      diff.escalationRepaired = true;
     }
 
     // 3. Risk profile, the High-episode escalation and the assessment pointer.
