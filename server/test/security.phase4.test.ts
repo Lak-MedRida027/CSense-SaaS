@@ -28,6 +28,8 @@ import {
 } from '../src/features/audit/audit.service.js';
 import type { GamificationServices } from '../src/features/gamification/services.js';
 import type { EscalationService } from '../src/features/governance/escalation.service.js';
+import { createMarkerService } from '../src/features/maintenance/markers.js';
+import type { ReconcileDiff } from '../src/features/maintenance/reconcile.service.js';
 import { createSweeper } from '../src/features/maintenance/sweeper.js';
 import { Mutex } from '../src/lib/mutex.js';
 import {
@@ -39,7 +41,10 @@ import {
   ReconcileMarker,
   RiskProfile,
 } from '../src/models/index.js';
-import { verifyAndRecord } from '../src/scripts/verifyAudit.js';
+import {
+  verifyAndRecord,
+  verifyAuditChain as verifyFullAudit,
+} from '../src/scripts/verifyAudit.js';
 import { createEmployee, makeCredentials } from './helpers/fixtures.js';
 import {
   completeContent,
@@ -1031,5 +1036,419 @@ describe('availability', () => {
     expect(list.status).toBe(200);
     expect(await AuditLog.countDocuments({ action: 'auth.login.failed' })).toBe(25);
     expect((await verifyAuditChain()).ok).toBe(true);
+  });
+});
+
+// ================================================================================================
+// Re-review of the fixes (569103c) and of the new safeguards P4-L5 / P4-L8 (dbdf103).
+// ================================================================================================
+
+const sleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
+const daysAgo = (days: number): Date => new Date(Date.now() - days * 86_400_000);
+
+/** A management-tier critical escalation (gate restriction) for a fresh employee. */
+async function criticalEscalation(g: GamificationServices): Promise<string> {
+  const emp = await createEmployee(creds);
+  const { escalationId } = await g.escalations.recordCriticalEvent({
+    userId: emp.id,
+    reason: 'gate_access_restricted',
+    sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
+    occurredAt: new Date(),
+  });
+  return escalationId;
+}
+
+describe('re-review: fixes hold under attack', () => {
+  it('RR-M1: concurrent retriggers at the system boundary never spill into the admin reserve', async () => {
+    const t = await buildGamificationApp();
+    const cur = await createCurriculum({ count: 1 });
+    const m1 = first(cur.modules);
+    const emp = await createEmployee(creds);
+    await cooldownEntry(emp.id, m1.quizId);
+    await cooldownEntry(emp.id, m1.quizId);
+    await t.g.escalations.evaluateCooldowns(emp.id);
+    const esc = first(await Escalation.find({ userId: emp.id }).lean());
+    // Bring the escalation to one slot below the system budget (opened + 147 retriggers = 148).
+    for (let i = 0; i < 147; i += 1) {
+      await cooldownEntry(emp.id, m1.quizId);
+      await t.g.escalations.evaluateCooldowns(emp.id);
+    }
+    expect((await Escalation.findById(esc._id).lean())?.events).toHaveLength(148);
+    // Now race: many new cooldowns evaluated concurrently.
+    for (let i = 0; i < 6; i += 1) await cooldownEntry(emp.id, m1.quizId);
+    await Promise.all(Array.from({ length: 8 }, () => t.g.escalations.evaluateCooldowns(emp.id)));
+    const after = await Escalation.findById(esc._id).lean();
+    expect(after?.events.length).toBeLessThanOrEqual(150);
+    // Both reviewer steps still fit.
+    const admin = await adminClient(t.app, creds);
+    const path = `/admin/escalations/${esc._id.toHexString()}`;
+    const ack = await admin.patch(path, {
+      action: 'acknowledge',
+      expectedVersion: after?.version ?? 0,
+    });
+    expect(ack.status).toBe(200);
+    const res = await admin.patch(path, {
+      action: 'resolve',
+      expectedVersion: (ack.body as { version: number }).version,
+      resolution: 'remediated',
+      note: 'coached',
+    });
+    expect(res.status).toBe(200);
+  }, 120_000);
+
+  // P4-L9 (L1 not fully closed): the idempotency lookup in the audit service, and the reconcile
+  // existence checks, accept any row carrying the key, chained or not. Cooldown keys are fully
+  // predictable (`cooldown:<user>:<assessment>:<attemptNumber>`). Someone with collection write
+  // access plants a back-dated unchained row holding a future key: the real write is then reported
+  // as a "duplicate", never enters the chain (so risk and escalations never see it), and
+  // audit:verify stays green because the planted row is older than the first chained row.
+  it('RR-L9 (P4-L9): a planted unchained row holding a future idempotency key cannot swallow a chained write unnoticed', async () => {
+    await audit.record({ action: 'auth.logout', outcome: 'success' }); // the chain exists
+    const userId = new Types.ObjectId();
+    const assessmentId = new Types.ObjectId().toHexString();
+    const key = `cooldown:${userId.toHexString()}:${assessmentId}:3`;
+    await AuditLog.collection.insertOne({
+      action: 'learning.assessment.cooldown',
+      outcome: 'success',
+      idempotencyKey: key,
+      targetId: userId,
+      metadata: {},
+      createdAt: new Date(0),
+    });
+    let duplicate: boolean;
+    try {
+      duplicate = (
+        await audit.record({
+          action: 'learning.assessment.cooldown',
+          outcome: 'success',
+          severity: 'warning',
+          target: { type: 'user', id: userId },
+          idempotencyKey: key,
+          metadata: { assessmentId, kind: 'Quiz', failedAttempts: 3, attemptNumber: 3 },
+        })
+      ).duplicate;
+    } catch {
+      return; // refusing the write loudly is an acceptable fix
+    }
+    if (!duplicate) return; // the entry was chained: also a fix
+    const report = await verifyFullAudit({ secret: testChainSecret });
+    expect(report.ok).toBe(false);
+  });
+
+  // P4-L10: the audit mutex timeout abandons a slow write but does not cancel it. The abandoned
+  // task keeps retrying and can still insert after its caller was told it failed, so callers that
+  // compensate on failure (login revokes the session, user creation deletes the user) leave a
+  // chained record of something that did not happen. ADR 0011 promises audit records are never false.
+  it('RR-L10 (P4-L10): an audit write reported as timed out never lands in the chain afterwards', async () => {
+    const original = AuditLog.create.bind(AuditLog);
+    const delayed = async (...args: Parameters<typeof AuditLog.create>) => {
+      await sleep(300);
+      return original(...args);
+    };
+    const spy = vi.spyOn(AuditLog, 'create').mockImplementationOnce(delayed);
+    const svc = createAuditService({
+      chainSecret: testChainSecret,
+      mutex: new Mutex(),
+      writeTimeoutMs: 50,
+    });
+    try {
+      await expect(
+        svc.record({ action: 'user.created', outcome: 'success', metadata: { probe: 'late' } }),
+      ).rejects.toThrow();
+      await sleep(600);
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await AuditLog.countDocuments({ 'metadata.probe': 'late' })).toBe(0);
+  });
+
+  // P4-M3: reconcile replays the WHOLE attempt history with TODAY's ASSESSMENT_COOLDOWN_AFTER_FAILS
+  // and writes a `learning.assessment.cooldown` entry for every cooldown that rule predicts but
+  // that has none. After a configuration change (e.g. 3 -> 2) the next sweep or CLI run writes
+  // cooldowns that never happened into the immutable chain, back-dated, for every employee: each
+  // adds +25 Behavioural and can open repeated_assessment_cooldowns escalations.
+  it('RR-M3 (P4-M3): reconcile never fabricates cooldowns the employee never had', async () => {
+    const t = await buildGamificationApp({ learning: { cooldownAfterFails: 2 } });
+    const cur = await createCurriculum({ count: 2 });
+    const m1 = first(cur.modules);
+    const emp = await createEmployee(creds);
+    // History recorded while the rule was 3 failures: fail, fail, pass. No cooldown ever occurred.
+    await insertAttempts(emp.id, [
+      { assessmentId: m1.quizId, moduleId: m1.id, attemptNumber: 1, correct: 1 },
+      { assessmentId: m1.quizId, moduleId: m1.id, attemptNumber: 2, correct: 1 },
+      { assessmentId: m1.quizId, moduleId: m1.id, attemptNumber: 3, correct: 5 },
+    ]);
+    await t.g.reconcile.reconcileUser(emp.id);
+    expect(await AuditLog.countDocuments({ action: 'learning.assessment.cooldown' })).toBe(0);
+    const profile = await RiskProfile.findOne({ userId: emp.id }).lean();
+    expect(profile?.evidence?.cooldowns ?? 0).toBe(0);
+  });
+
+  // P4-L13: a parked marker (10 failed claims) is never claimed again, and markers.mark() for the
+  // same employee only adds a reason to it ($setOnInsert does not reset `attempts`). After one bad
+  // stretch (about 8 h of back-off), every later failed hook for that employee (XP, badge, risk,
+  // cooldown audit, escalation outbox) is silently left unrepaired until an operator acts.
+  it('RR-L13 (P4-L13): a new failure after a marker was parked is still repaired by the sweeper', async () => {
+    const emp = await createEmployee(creds);
+    await ReconcileMarker.create({
+      userId: new Types.ObjectId(emp.id),
+      reasons: ['risk'],
+      attempts: 10,
+    });
+    await createMarkerService({ logger: silentLogger }).mark(emp.id, 'xp');
+    const diff = { auditWritten: 0 } as ReconcileDiff;
+    const reconcileUser = vi.fn(() => Promise.resolve(diff));
+    const sweeper = createSweeper({
+      logger: silentLogger,
+      clock: () => new Date(Date.now() + 86_400_000),
+      reconcile: { reconcileUser, reconcileAll: vi.fn() },
+      escalations: {
+        pendingAudit: () => Promise.resolve([]),
+        scanDisengaged: () => Promise.resolve({ opened: 0, next: null }),
+      } as unknown as EscalationService,
+    });
+    await sweeper.sweepOnce();
+    expect(reconcileUser).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('re-review: separation of duties (P4-L8)', () => {
+  it('RR-S1: acknowledger A cannot resolve through a note, a version race or a retried resolve; B can', async () => {
+    const t = await buildGamificationApp();
+    const id = await criticalEscalation(t.g);
+    const a = await adminClient(t.app, creds);
+    const b = await adminClient(t.app, creds);
+    const path = `/admin/escalations/${id}`;
+    expect((await a.patch(path, { action: 'acknowledge', expectedVersion: 0 })).status).toBe(200);
+    const resolveBody = (v: number) => ({
+      action: 'resolve',
+      expectedVersion: v,
+      resolution: 'remediated',
+      note: 'closing',
+      managementReference: 'MGMT-1',
+    });
+    // A notes (bumping the version) and races several resolves, current and stale versions.
+    const [note, ...mine] = await Promise.all([
+      a.patch(path, { action: 'note', note: 'context' }),
+      a.patch(path, resolveBody(1)),
+      a.patch(path, resolveBody(2)),
+      a.patch(path, resolveBody(1)),
+    ]);
+    expect(note.status).toBe(200);
+    for (const r of mine) {
+      expect(r.status).toBe(403);
+      expect(r.body.error.code).toBe('SEPARATION_OF_DUTIES');
+    }
+    const mid = await Escalation.findById(id).lean();
+    expect(mid?.status).toBe('acknowledged');
+    expect(mid?.resolvedBy ?? null).toBeNull();
+    // B and A racing on the current version: only B can win.
+    const [byB, byA] = await Promise.all([
+      b.patch(path, resolveBody(mid?.version ?? 0)),
+      a.patch(path, resolveBody(mid?.version ?? 0)),
+    ]);
+    expect(byB.status).toBe(200);
+    expect(byA.status).toBe(403);
+    const done = await Escalation.findById(id).lean();
+    expect(done?.resolvedBy?.toHexString()).toBe(b.id);
+    expect(done?.acknowledgedBy?.toHexString()).toBe(a.id);
+    expect(await AuditLog.countDocuments({ action: 'escalation.resolve_refused' })).toBe(4);
+    expect((await verifyAuditChain()).ok).toBe(true);
+  });
+
+  it('RR-S2: refusal ordering leaks nothing: employees get FORBIDDEN, unknown ids 404, malformed bodies 400 before any refusal is audited', async () => {
+    const t = await buildGamificationApp();
+    const id = await criticalEscalation(t.g);
+    const a = await adminClient(t.app, creds);
+    const emp = await signedInEmployee(t.app, creds);
+    const path = `/admin/escalations/${id}`;
+    const body = {
+      action: 'resolve',
+      expectedVersion: 0,
+      resolution: 'risk_accepted',
+      note: 'x',
+      managementReference: 'M',
+    };
+    const asEmployee = await emp.patch(path, body);
+    expect(asEmployee.status).toBe(403);
+    expect(asEmployee.body.error.code).toBe('FORBIDDEN');
+    expect(
+      (await a.patch(`/admin/escalations/${new Types.ObjectId().toHexString()}`, body)).status,
+    ).toBe(404);
+    expect((await a.patch(path, { ...body, resolution: 'bogus' })).status).toBe(400);
+    expect((await a.patch(path, { ...body, extra: 1 })).status).toBe(400);
+    expect(await AuditLog.countDocuments({ action: 'escalation.resolve_refused' })).toBe(0);
+  });
+
+  it('RR-S3 (P4-L11): an administrator account created by the acknowledger cannot resolve; a stranger can', async () => {
+    const t = await buildGamificationApp();
+    const id = await criticalEscalation(t.g);
+    const a = await adminClient(t.app, creds);
+    const stranger = await adminClient(t.app, creds);
+    // A creates a second administrator account for themselves (allowed: admins create admins).
+    const email = `alt.${new Types.ObjectId().toHexString()}@example.com`;
+    const created = await a.post('/admin/users', {
+      role: 'administrator',
+      name: 'Alt Account',
+      email,
+      password: creds.password,
+    });
+    expect(created.status).toBe(201);
+    const login = await request(t.app)
+      .post('/api/v1/auth/login')
+      .send({ email, password: creds.password });
+    expect(login.status).toBe(200);
+    const alt = (login.body as { accessToken: string }).accessToken;
+    const path = `/api/v1/admin/escalations/${id}`;
+    expect(
+      (await a.patch(`/admin/escalations/${id}`, { action: 'acknowledge', expectedVersion: 0 }))
+        .status,
+    ).toBe(200);
+    const body = {
+      action: 'resolve',
+      expectedVersion: 1,
+      resolution: 'risk_accepted',
+      note: 'accepted',
+      managementReference: 'MGMT-SELF',
+    };
+    const res = await request(t.app).patch(path).set('Authorization', `Bearer ${alt}`).send(body);
+    expect(res.status).toBe(403);
+    expect((res.body as { error: { code: string } }).error.code).toBe('SEPARATION_OF_DUTIES');
+    expect((await Escalation.findById(id).lean())?.status).toBe('acknowledged');
+    expect(
+      (await AuditLog.findOne({ action: 'escalation.resolve_refused' }).lean())?.metadata,
+    ).toMatchObject({ reason: 'created_by_acknowledger' });
+    // An administrator the acknowledger did not create can.
+    expect((await stranger.patch(`/admin/escalations/${id}`, body)).status).toBe(200);
+  });
+
+  // P4-L11: only risk_accepted (or critical / management tier) needs a second administrator, but
+  // `false_positive` and `no_action_required` close an elevated escalation just as finally and
+  // with no remediation. The acknowledger can dismiss a risk_level_high or cooldown escalation
+  // alone by picking one of those, which defeats the intent of the rule.
+  it('RR-L11 (P4-L11): the acknowledger cannot dismiss an elevated escalation alone as no_action_required or false_positive', async () => {
+    const t = await buildGamificationApp();
+    const e = await craftHighRiskEmployee(t.g, creds);
+    const a = await adminClient(t.app, creds);
+    const path = `/admin/escalations/${e.escalationId}`;
+    expect((await a.patch(path, { action: 'acknowledge', expectedVersion: 0 })).status).toBe(200);
+    const res = await a.patch(path, {
+      action: 'resolve',
+      expectedVersion: 1,
+      resolution: 'no_action_required',
+      note: 'nothing to see',
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it('RR-S4: with ESCALATION_REQUIRE_SECOND_ADMIN=false the same admin may resolve, but the event, DTO and audit all carry sameAdmin', async () => {
+    const t = await buildGamificationApp({ governance: { requireSecondAdmin: false } });
+    const id = await criticalEscalation(t.g);
+    const a = await adminClient(t.app, creds);
+    const path = `/admin/escalations/${id}`;
+    await a.patch(path, { action: 'acknowledge', expectedVersion: 0 });
+    const res = await a.patch(path, {
+      action: 'resolve',
+      expectedVersion: 1,
+      resolution: 'risk_accepted',
+      note: 'single admin org',
+      managementReference: 'MGMT-9',
+    });
+    expect(res.status).toBe(200);
+    const resolved = (res.body as { events: { type: string; sameAdmin: boolean }[] }).events.find(
+      (e) => e.type === 'resolved',
+    );
+    expect(resolved?.sameAdmin).toBe(true);
+    const entry = await AuditLog.findOne({ action: 'escalation.resolved' }).lean();
+    expect(entry?.severity).toBe('warning');
+    expect(entry?.metadata).toMatchObject({ sameAdmin: true });
+    expect(await AuditLog.countDocuments({ action: 'escalation.resolve_refused' })).toBe(0);
+  });
+});
+
+describe('re-review: disengagement flag (P4-L5)', () => {
+  // P4-L12: the flag only covers employees who are still "not assessed". Two first attempts make
+  // an employee assessed: pass module 1 and abandon module 2, then stop for good. The composite
+  // lands in Medium (Engagement is only 15 %), Medium never escalates, and the disengagement rule
+  // no longer applies, so a stalled employee is invisible to governance forever.
+  it('RR-L12 (P4-L12): an employee who stalls right after becoming assessed is still flagged', async () => {
+    const t = await buildGamificationApp();
+    const cur = await createCurriculum({ count: 7 });
+    const [m1, m2] = cur.modules;
+    if (!m1 || !m2) throw new Error('fixture');
+    const emp = await createEmployee(creds);
+    await Employee.collection.updateOne(
+      { _id: new Types.ObjectId(emp.id) },
+      { $set: { createdAt: daysAgo(60) } },
+    );
+    await insertAttempts(emp.id, [
+      {
+        assessmentId: m1.quizId,
+        moduleId: m1.id,
+        attemptNumber: 1,
+        correct: 5,
+        attemptedAt: daysAgo(59),
+      },
+      {
+        assessmentId: m2.quizId,
+        moduleId: m2.id,
+        attemptNumber: 1,
+        endReason: 'abandoned',
+        correct: 0,
+        attemptedAt: daysAgo(59),
+      },
+    ]);
+    await t.g.risk.recomputeForUser(emp.id, { type: 'reconcile' });
+    const profile = await RiskProfile.findOne({ userId: emp.id }).lean();
+    expect(profile?.riskLevel).toBe('Medium');
+    await t.g.sweeper.sweepOnce();
+    await t.g.reconcile.reconcileUser(emp.id);
+    expect(await Escalation.countDocuments({ userId: emp.id })).toBeGreaterThan(0);
+  });
+
+  it('RR-D1: never raised for an administrator, a deactivated employee or a young account, whatever path runs', async () => {
+    const t = await buildGamificationApp();
+    await createCurriculum({ count: 2 });
+    const admin = await adminClient(t.app, creds);
+    const inactive = await createEmployee(creds, { isActive: false });
+    const young = await createEmployee(creds);
+    for (const id of [admin.id, inactive.id]) {
+      await Employee.collection.updateOne(
+        { _id: new Types.ObjectId(id) },
+        { $set: { createdAt: daysAgo(90) } },
+      );
+    }
+    for (const id of [admin.id, inactive.id, young.id]) {
+      expect(await t.g.escalations.evaluateDisengagement(id)).toBeNull();
+      await t.g.reconcile.reconcileUser(id);
+    }
+    await t.g.sweeper.sweepOnce();
+    expect(await Escalation.countDocuments({ reason: 'disengaged_unassessed' })).toBe(0);
+  });
+
+  it('RR-D2: the flag and unassessedSince never reach the flagged employee', async () => {
+    const t = await buildGamificationApp();
+    await createCurriculum({ count: 2 });
+    const emp = await signedInEmployee(t.app, creds);
+    await Employee.collection.updateOne(
+      { _id: new Types.ObjectId(emp.id) },
+      { $set: { createdAt: daysAgo(30) } },
+    );
+    await t.g.sweeper.sweepOnce();
+    expect(await Escalation.countDocuments({ reason: 'disengaged_unassessed' })).toBe(1);
+    const bodies: unknown[] = [];
+    for (const path of ['/me/xp', '/me/badges', '/me/attempts', '/auth/me', '/modules']) {
+      const res = await emp.get(path);
+      expect(res.status, path).toBe(200);
+      bodies.push(res.body);
+    }
+    const leaked = allKeys(bodies).filter((k) =>
+      /disengag|unassessed|escalat|risk|assessedSince/i.test(k),
+    );
+    expect(leaked).toEqual([]);
   });
 });

@@ -7,3 +7,4 @@ export * from './composite.js';
 export * from './classify.js';
 export * from './transitions.js';
 export * from './profile.js';
+export * from './disengagement.js';

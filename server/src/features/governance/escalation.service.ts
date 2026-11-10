@@ -16,6 +16,9 @@ import {
   type EscalationStatus,
   type FeatureFlags,
   RISK_LEVELS,
+  decideDisengagement,
+  stallAnchorMs,
+  type DisengagementReason,
   type RiskLevel,
 } from '@csense/shared';
 import {
@@ -30,7 +33,11 @@ import {
   Employee,
   Escalation,
   Module,
+  FinalTest,
+  QuizAttempt,
   RiskProfile,
+  UserProgress,
+  User,
   numericSeqFilter,
 } from '../../models/index.js';
 import { audit, type AuditContext, type AuditRecordInput } from '../audit/audit.service.js';
@@ -420,29 +427,20 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
     },
 
     async evaluateDisengagement(userId) {
-      const cutoff = disengagedCutoff();
       const owner = new Types.ObjectId(userId);
       const employee = await Employee.findOne({
         _id: owner,
         isActive: true,
-        createdAt: trusted({ $lte: cutoff }),
+        createdAt: trusted({ $lte: disengagedCutoff() }),
       })
-        .select('_id')
+        .select('_id createdAt')
         .lean();
       if (!employee) return null;
-      const dedupeKey = disengagedKey(userId);
-      const existing = await Escalation.findOne({ dedupeKey }).select('_id').lean();
-      if (existing) return null; // opened before: never reopened automatically, never auto-resolved
-      const [assessed, curriculum] = await Promise.all([
-        RiskProfile.exists({ userId: owner, riskLevel: trusted({ $in: [...RISK_LEVELS] }) }),
-        Module.exists({ isPublished: true }),
-      ]);
-      if (assessed || !curriculum) return null;
-      return (await openDisengaged(userId)).escalationId;
+      return (await flagDisengaged([employee])).get(userId) ?? null;
     },
 
     async scanDisengaged({ afterId, pageSize }) {
-      if (!(await Module.exists({ isPublished: true }))) return { opened: 0, next: null };
+      if (!(await hasCurriculum())) return { opened: 0, next: null };
       const users = await Employee.find({
         isActive: true,
         createdAt: trusted({ $lte: disengagedCutoff() }),
@@ -450,40 +448,11 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       })
         .sort({ _id: 1 })
         .limit(pageSize)
-        .select('_id')
+        .select('_id createdAt')
         .lean();
-      const ids = users.map((u) => u._id);
-      if (ids.length === 0) return { opened: 0, next: null };
-      const [assessed, flagged] = await Promise.all([
-        RiskProfile.find({
-          userId: trusted({ $in: ids }),
-          riskLevel: trusted({ $in: [...RISK_LEVELS] }),
-        })
-          .select('userId')
-          .lean(),
-        Escalation.find({
-          dedupeKey: trusted({ $in: ids.map((i) => disengagedKey(i.toHexString())) }),
-        })
-          .select('userId')
-          .lean(),
-      ]);
-      const skip = new Set([...assessed, ...flagged].map((r) => r.userId.toHexString()));
-      let opened = 0;
-      for (const id of ids) {
-        const hex = id.toHexString();
-        if (skip.has(hex)) continue;
-        try {
-          await openDisengaged(hex);
-          opened += 1;
-        } catch (err) {
-          logger.error(
-            { err, userId: hex },
-            'Disengagement escalation failed; the next scan retries',
-          );
-        }
-      }
-      const last = ids.at(-1);
-      return { opened, next: ids.length === pageSize && last ? last.toHexString() : null };
+      const last = users.at(-1);
+      const opened = users.length === 0 ? 0 : (await flagDisengaged(users)).size;
+      return { opened, next: users.length === pageSize && last ? last._id.toHexString() : null };
     },
 
     async transition(escalationId, request, ctx) {
@@ -499,7 +468,7 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
     esc: EscalationRow,
     request: EscalationActionRequest,
     ctx: TransitionContext,
-    reason: 'same_admin' | 'not_acknowledged',
+    reason: 'same_admin' | 'not_acknowledged' | 'created_by_acknowledger',
   ): Promise<void> {
     try {
       await audit.record({
@@ -534,30 +503,43 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
       const current = await Escalation.findById(escalationId).lean<EscalationRow>();
       if (!current) throw notFoundError();
 
-      // Separation of duties (P4-L8): a critical, management-tier or risk_accepted escalation must be
-      // resolved by a different administrator than the one who acknowledged it.
+      // Separation of duties (P4-L8, P4-L11): a critical or management-tier escalation, and any
+      // resolution other than remediated, must be resolved by a different administrator than the
+      // one who acknowledged it, and not by an account that administrator created.
       const needsSecondAdmin =
         request.action === 'resolve' &&
         (current.severity === 'critical' ||
           current.reviewTier === 'management' ||
-          request.resolution === 'risk_accepted');
+          request.resolution !== 'remediated');
       const enforceSecondAdmin = needsSecondAdmin && deps.governance.requireSecondAdmin;
       const acknowledger = current.acknowledgedBy?.toHexString() ?? null;
+      let createdByAcknowledger = false;
+      if (needsSecondAdmin && acknowledger !== null && acknowledger !== ctx.actorId) {
+        const resolver = await User.findById(ctx.actorId).select('createdBy').lean();
+        createdByAcknowledger = resolver?.createdBy?.toHexString() === acknowledger;
+      }
       // (Only while the escalation is still open to resolve; a resolved one is a plain state error.)
       if (
         enforceSecondAdmin &&
         current.status !== 'resolved' &&
-        (current.status === 'open' || acknowledger === ctx.actorId)
+        (current.status === 'open' || acknowledger === ctx.actorId || createdByAcknowledger)
       ) {
         await refuseResolve(
           current,
           request,
           ctx,
-          current.status === 'open' ? 'not_acknowledged' : 'same_admin',
+          current.status === 'open'
+            ? 'not_acknowledged'
+            : acknowledger === ctx.actorId
+              ? 'same_admin'
+              : 'created_by_acknowledger',
         );
         throw separationOfDuties();
       }
-      const sameAdmin = needsSecondAdmin && !enforceSecondAdmin && acknowledger === ctx.actorId;
+      const sameAdmin =
+        needsSecondAdmin &&
+        !enforceSecondAdmin &&
+        (acknowledger === ctx.actorId || createdByAcknowledger);
 
       const decision = applyEscalationAction(current.status, request.action);
       if (!decision.ok) {
@@ -690,23 +672,151 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
     }
   }
 
-  const disengagedKey = (userId: string): string => `disengaged_unassessed:${userId}`;
   const disengagedCutoff = (): Date =>
     new Date(clock().getTime() - deps.governance.disengagedAfterDays * 86_400_000);
 
-  function openDisengaged(userId: string): Promise<{ escalationId: string; outcome: OpenOutcome }> {
-    return openOrRetrigger({
-      userId,
-      reason: 'disengaged_unassessed',
-      severity: 'elevated',
-      reviewTier: 'security_team',
-      scopeKey: 'disengaged',
-      dedupeKey: disengagedKey(userId),
-      context: {},
-      sourceRef: { type: 'employee_account', id: userId },
-      openedAt: clock(),
-      retriggerEventId: null,
-    });
+  const DISENGAGED_REASONS: DisengagementReason[] = [
+    'disengaged_unassessed',
+    'disengaged_no_progress',
+  ];
+
+  const hasCurriculum = async (): Promise<boolean> =>
+    (await Module.exists({ isPublished: true })) !== null || (await FinalTest.exists({})) !== null;
+
+  /**
+   * Flag the employees (of one page) who stalled: unfinished curriculum and no progress for
+   * DISENGAGED_AFTER_DAYS, where progress is the latest of account creation, module start,
+   * exercise answer, content completion, attempt, and the resolution of an earlier flag. The reason
+   * says whether they were ever assessed. A fixed number of batched, indexed reads per page; no
+   * recompute per employee. Returns the escalation id per flagged employee.
+   */
+  async function flagDisengaged(
+    people: readonly { _id: Types.ObjectId; createdAt: Date }[],
+  ): Promise<Map<string, string>> {
+    const flagged = new Map<string, string>();
+    if (people.length === 0) return flagged;
+    const ids = people.map((p) => p._id);
+    const [modules, finalTest] = await Promise.all([
+      Module.find({ isPublished: true }).select('_id').lean(),
+      FinalTest.exists({}),
+    ]);
+    if (modules.length === 0 && finalTest === null) return flagged;
+    const moduleIds = modules.map((m) => m._id.toHexString());
+
+    const [attemptLast, progressLast, passes, resolvedLast, assessed, active] = await Promise.all([
+      QuizAttempt.aggregate<{ _id: Types.ObjectId; last: Date }>([
+        { $match: { userId: { $in: ids } } },
+        { $group: { _id: '$userId', last: { $max: '$attemptedAt' } } },
+      ]),
+      UserProgress.aggregate<{ _id: Types.ObjectId; last: Date | null }>([
+        { $match: { userId: { $in: ids } } },
+        {
+          $project: {
+            userId: 1,
+            t: {
+              $max: [
+                '$startedAt',
+                '$lastAttemptAt',
+                '$contentCompletedAt',
+                { $max: '$exerciseAnswers.answeredAt' },
+              ],
+            },
+          },
+        },
+        { $group: { _id: '$userId', last: { $max: '$t' } } },
+      ]),
+      QuizAttempt.find({ userId: trusted({ $in: ids }), passed: true })
+        .select('userId type moduleId')
+        .lean(),
+      Escalation.aggregate<{ _id: Types.ObjectId; last: Date | null }>([
+        {
+          $match: {
+            userId: { $in: ids },
+            reason: { $in: DISENGAGED_REASONS },
+            status: 'resolved',
+          },
+        },
+        { $group: { _id: '$userId', last: { $max: '$resolvedAt' } } },
+      ]),
+      RiskProfile.find({
+        userId: trusted({ $in: ids }),
+        riskLevel: trusted({ $in: [...RISK_LEVELS] }),
+      })
+        .select('userId')
+        .lean(),
+      Escalation.find({
+        userId: trusted({ $in: ids }),
+        reason: trusted({ $in: DISENGAGED_REASONS }),
+        active: true,
+      })
+        .select('userId')
+        .lean(),
+    ]);
+
+    const lastByUser = (rows: { _id: Types.ObjectId; last: Date | null }[]) =>
+      new Map(rows.map((r) => [r._id.toHexString(), r.last?.getTime() ?? null]));
+    const attempts = lastByUser(attemptLast);
+    const progress = lastByUser(progressLast);
+    const resolved = lastByUser(resolvedLast);
+    const assessedSet = new Set(assessed.map((r) => r.userId.toHexString()));
+    const activeSet = new Set(active.map((r) => r.userId.toHexString()));
+    const passedModules = new Map<string, Set<string>>();
+    const finalPassed = new Set<string>();
+    for (const p of passes) {
+      const user = p.userId.toHexString();
+      if (p.type === 'FinalTest') finalPassed.add(user);
+      else if (p.moduleId) {
+        const set = passedModules.get(user) ?? new Set<string>();
+        set.add(p.moduleId.toHexString());
+        passedModules.set(user, set);
+      }
+    }
+
+    for (const person of people) {
+      const user = person._id.toHexString();
+      const passed = passedModules.get(user);
+      const anchorMs = stallAnchorMs([
+        person.createdAt.getTime(),
+        attempts.get(user),
+        progress.get(user),
+        resolved.get(user),
+      ]);
+      const reason = decideDisengagement({
+        nowMs: clock().getTime(),
+        afterDays: deps.governance.disengagedAfterDays,
+        anchorMs,
+        assessed: assessedSet.has(user),
+        hasCurriculum: true,
+        finished:
+          moduleIds.every((m) => passed?.has(m) === true) &&
+          (finalTest === null || finalPassed.has(user)),
+        alreadyActive: activeSet.has(user),
+      });
+      if (reason === null) continue;
+      try {
+        const opened = await openOrRetrigger({
+          userId: user,
+          reason,
+          severity: 'elevated',
+          reviewTier: 'security_team',
+          // One scope for both reasons: the database allows one active flag per employee.
+          scopeKey: 'disengaged',
+          // One flag per stall: a new one needs progress (or a resolution) and another full period.
+          dedupeKey: `${reason}:${user}:${String(anchorMs)}`,
+          context: {},
+          sourceRef: { type: 'employee_account', id: user },
+          openedAt: clock(),
+          retriggerEventId: null,
+        });
+        if (opened.outcome === 'opened') flagged.set(user, opened.escalationId);
+      } catch (err) {
+        logger.error(
+          { err, userId: user },
+          'Disengagement escalation failed; the next scan retries',
+        );
+      }
+    }
+    return flagged;
   }
 
   async function openOrRetrigger(

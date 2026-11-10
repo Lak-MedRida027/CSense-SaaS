@@ -138,7 +138,7 @@ Startup builds and verifies (key, `unique`, partial filter, not just the name) t
 Indexes: `{userId:1,assessmentId:1}` unique where `status = open` (one open session) · TTL `{expiresAt:1}` (30 days past expiry).
 
 ### `attemptcounters` (AttemptCounter, Phase 3, not in the diagram)
-Per-(employee, assessment) ledger: `seq` (attempt numbers, atomic `$inc` at session start), `attempts`, `bestScore` and `firstPassAt` (set once by a conditional write, which decides the first pass and fires the completion hooks exactly once), `consecutiveFails` (failure streak, reset by a pass or when a cooldown starts) and `cooldownUntil` (new sessions are refused until then). Unique index `{userId:1,assessmentId:1}`.
+Per-(employee, assessment) ledger: `seq` (attempt numbers, atomic `$inc` at session start), `attempts`, `cooldowns[]` (every cooldown started: attempt number, rule in force, `startedAt`, `until`; written in the same atomic update that starts it; audit entries are rebuilt from it, never from history), `bestScore` and `firstPassAt` (set once by a conditional write, which decides the first pass and fires the completion hooks exactly once), `consecutiveFails` (failure streak, reset by a pass or when a cooldown starts) and `cooldownUntil` (new sessions are refused until then). Unique index `{userId:1,assessmentId:1}`.
 
 ### `riskprofiles` (RiskProfile, changed in Phase 4; ADR 0010)
 `userId` → User (required, **unique**; employees only, created lazily on the first recomputation). Sub-scores
@@ -164,17 +164,17 @@ reconcile \| critical_event \| model_upgrade \| config_change, refId}`, `compute
 `Employee.totalXP` and `level` are a monotone projection of the attempt history (`computeXp`), never incremented.
 
 ### `escalations` (Escalation, Phase 4, not in the diagram; ADR 0011)
-`userId``repeated_assessment_cooldowns` | `disengaged_unassessed` | (subject), `reason` (`risk_level_high` \| `repeated_assessment_cooldowns` \| `simulation_credentials_submitted` \|
+`userId` (subject), `reason` (`risk_level_high` \| `repeated_assessment_cooldowns` \| `disengaged_unassessed` \| `disengaged_no_progress` \| `simulation_credentials_submitted` \|
 `gate_access_restricted`), `severity` (`elevated` \| `critical`), `reviewTier` (`security_team` \| `management`), `status`
 (`open` \| `acknowledged` \| `resolved`), `active`, `scopeKey` (`risk`, `assessment:<id>` or null), `dedupeKey` (**unique**),
 `context` (risk snapshot at opening), `sourceRef`, `openedAt`, acknowledge/resolve actor and time, `assigneeId`, `resolution`,
 `managementReference`, `events[]` (`opened`, `retriggered`, `acknowledged`, `note`, `resolved`; max 200; each with an `audited`
-outbox flag; resolved events also carry `sameAdmin`), `acknowledgedBy` / `resolvedBy` (separation of duties), `version`, and the counters `retriggerCount`, `lastRetriggeredAt`, `lastRetriggerRef` (retriggers past the 150-event system budget; 50 slots stay reserved for administrators). Indexes: `{dedupeKey:1}` unique · `{userId:1,reason:1,scopeKey:1}` unique where `active` and
-`scopeKey` is a string (one active escalation per employee, reason and scope) · `{status:1,severity:1,openedAt:-1}` ·
+outbox flag; resolved events also carry `sameAdmin`), `acknowledgedBy` / `resolvedBy` (separation of duties), `version`, and the counters `retriggerCount`, `lastRetriggeredAt`, `lastRetriggerRef` (retriggers past the 150-event system budget; 50 slots stay reserved for administrators). Indexes: `{dedupeKey:1}` unique · `{userId:1,scopeKey:1}` unique where `active` and
+`scopeKey` is a string (one active escalation per employee and scope: `risk`, `assessment:<id>`, `disengaged`) · `{status:1,severity:1,openedAt:-1}` ·
 `{userId:1,openedAt:-1}` · `{'events.audited':1}`.
 
 ### `reconcilemarkers` (ReconcileMarker, Phase 4)
-One per employee that needs a reconcile (`reasons`, `attempts`, `notBefore`); left by a failed hook or audit write. The sweeper claims it with an atomic update that increments `attempts` (never reset by a failure) and leases it via `notBefore`; a failure backs off 30 s up to 1 h, and at 10 claims the marker is parked for an operator.
+One per employee that needs a reconcile (`reasons`, `parkedReasons`, `auditKeys`, `attempts`, `notBefore`); left by a failed hook or audit write. The sweeper claims it with an atomic update that increments `attempts` (never reset by a failure) and leases it via `notBefore`; a failure backs off 30 s up to 1 h, and at 10 claims the marker is parked for an operator.
 
 ### `phishingsimulations` (PhishingSimulation, behind `FEATURE_PHISHING`)
 `campaignName` (required), `emailTemplate` (required), `status` (`draft` \| `scheduled` \|

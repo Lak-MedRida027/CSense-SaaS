@@ -44,6 +44,7 @@ describe('escalation state machine', () => {
       'gate_access_restricted',
       'repeated_assessment_cooldowns',
       'disengaged_unassessed',
+      'disengaged_no_progress',
     ]);
   });
 });

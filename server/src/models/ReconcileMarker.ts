@@ -13,6 +13,10 @@ const reconcileMarkerSchema = new Schema(
     reasons: { type: [{ type: String, enum: RECONCILE_REASONS }], default: [] },
     // Claims so far. Never reset by a failure; at the sweeper limit the marker is parked.
     attempts: { type: Number, min: 0, default: 0, validate: intValidator },
+    // Reasons whose repair kept failing: kept for operators, never re-queued automatically.
+    parkedReasons: { type: [{ type: String, enum: RECONCILE_REASONS }], default: [] },
+    // Exact idempotency keys of audit entries that failed to be written (most recent 20).
+    auditKeys: { type: [{ type: String, maxlength: 200 }], default: [] },
     // Not claimable before this time (back-off after a failed reconcile).
     notBefore: { type: Date, default: null },
   },

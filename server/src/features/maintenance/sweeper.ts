@@ -97,6 +97,11 @@ export function createSweeper(deps: SweeperDeps): Sweeper {
           'Reconcile of a marked employee failed',
         );
         if (marker.attempts >= MARKER_MAX_ATTEMPTS) {
+          // Parked: these reasons stay for operators; a later failure with a new reason revives the marker.
+          await ReconcileMarker.updateOne(
+            { _id: marker._id },
+            { $addToSet: { parkedReasons: { $each: [...marker.reasons] } } },
+          ).catch(() => undefined);
           deps.logger.error(
             { event: 'reconcile_marker_parked', userId, attempts: marker.attempts },
             'Reconcile marker parked after repeated failures; an operator must run gamification:reconcile',

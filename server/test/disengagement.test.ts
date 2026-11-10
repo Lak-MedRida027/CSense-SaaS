@@ -204,7 +204,7 @@ describe('P4-L5: disengagement flag', () => {
         moduleId: m1.id,
         attemptNumber: 1,
         correct: 5,
-        attemptedAt: new Date(),
+        attemptedAt: new Date(t.clock().getTime() - 24 * DAY),
       },
     ]);
     await t.g.risk.recomputeForUser(emp.id, {

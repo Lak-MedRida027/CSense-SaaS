@@ -10,7 +10,12 @@ export { AttemptCounter } from './AttemptCounter.js';
 export { RiskProfile } from './RiskProfile.js';
 export { PhishingSimulation } from './PhishingSimulation.js';
 export { AuthSession, type AuthSessionRevokeReason } from './AuthSession.js';
-export { AuditLog, AuditLogImmutableError, numericSeq as numericSeqFilter } from './AuditLog.js';
+export {
+  AuditLog,
+  AuditLogImmutableError,
+  numericSeq as numericSeqFilter,
+  unchainedSeq as unchainedSeqFilter,
+} from './AuditLog.js';
 export { BadgeAward, BadgeAwardImmutableError } from './BadgeAward.js';
 export { RiskAssessment, RiskAssessmentImmutableError } from './RiskAssessment.js';
 export { Escalation } from './Escalation.js';

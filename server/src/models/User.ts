@@ -34,8 +34,8 @@ const userSchema = new Schema(
 
 userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ role: 1, isActive: 1 });
-// Disengagement scan: active employees by account age, paged by _id (P4-L5).
-userSchema.index({ role: 1, isActive: 1, createdAt: 1 });
+// Disengagement scan: active employees paged by _id (P4-L5, P4-L12).
+userSchema.index({ role: 1, isActive: 1, _id: 1 });
 userSchema.index({ department: 1 });
 // At most one account without a creator: the bootstrap administrator (decision U20). Two concurrent
 // bootstrap runs cannot both insert; the loser gets a duplicate-key error (P2-L3).

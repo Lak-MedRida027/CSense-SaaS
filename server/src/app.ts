@@ -84,7 +84,7 @@ export async function createApp({
   const app = express();
 
   // Every audit write goes through this service (hash chain, ADR 0012).
-  configureAudit(createAuditService({ chainSecret: config.audit.chainSecret, clock }));
+  configureAudit(createAuditService({ chainSecret: config.audit.chainSecret, clock, logger }));
   const gamification =
     providedGamification ??
     createGamificationServices({ config, clock, logger, ...(notifier ? { notifier } : {}) });

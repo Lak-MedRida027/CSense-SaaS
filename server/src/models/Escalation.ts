@@ -131,9 +131,9 @@ const escalationSchema = new Schema(
 );
 
 escalationSchema.index({ dedupeKey: 1 }, { unique: true });
-// At most one active escalation per employee, reason and scope (a risk episode, an assessment).
+// At most one active escalation per employee and scope (a risk episode, an assessment).
 escalationSchema.index(
-  { userId: 1, reason: 1, scopeKey: 1 },
+  { userId: 1, scopeKey: 1 },
   {
     unique: true,
     name: 'active_scope_unique',

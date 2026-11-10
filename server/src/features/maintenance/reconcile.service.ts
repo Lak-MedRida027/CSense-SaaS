@@ -1,11 +1,14 @@
 import { Types } from 'mongoose';
 import type { Logger } from 'pino';
 import {
+  Assessment,
+  AttemptCounter,
   Badge,
   BadgeAward,
   Employee,
   Escalation,
   AuditLog,
+  numericSeqFilter,
   QuizAttempt,
   RiskAssessment,
   RiskProfile,
@@ -56,8 +59,6 @@ export interface ReconcileDeps {
   risk: RiskService;
   escalations: EscalationService;
   phishingEnabled: boolean;
-  /** The cooldown rule in force (ASSESSMENT_COOLDOWN_*), to rebuild missing cooldown audit entries. */
-  cooldown: { afterFails: number; minutes: number };
 }
 
 interface ProfileRow {
@@ -75,58 +76,6 @@ interface ProfileRow {
   modelVersion?: number | null;
   rev: number;
   computedAt?: Date | null;
-}
-
-interface CooldownRebuild {
-  assessmentId: string;
-  kind: 'Quiz' | 'FinalTest';
-  attemptNumber: number;
-  at: Date;
-}
-
-/**
- * Replay the attempt history with the cooldown rule (a streak of failed attempts, reset by a pass
- * and by each cooldown) to find every cooldown that should exist. Attempt numbers are the same ones
- * Phase 3 puts in the entry, so the rebuilt idempotency keys match the original writes.
- */
-function cooldownsFromHistory(
-  rows: {
-    type: 'Quiz' | 'FinalTest';
-    refId: Types.ObjectId;
-    attemptNumber: number;
-    passed: boolean;
-    attemptedAt: Date;
-  }[],
-  afterFails: number,
-): CooldownRebuild[] {
-  const byAssessment = new Map<string, typeof rows>();
-  for (const r of rows) {
-    const key = r.refId.toHexString();
-    const list = byAssessment.get(key);
-    if (list) list.push(r);
-    else byAssessment.set(key, [r]);
-  }
-  const found: CooldownRebuild[] = [];
-  for (const [assessmentId, list] of byAssessment) {
-    let streak = 0;
-    for (const a of [...list].sort((x, y) => x.attemptNumber - y.attemptNumber)) {
-      if (a.passed) {
-        streak = 0;
-        continue;
-      }
-      streak += 1;
-      if (streak >= afterFails) {
-        streak = 0;
-        found.push({
-          assessmentId,
-          kind: a.type,
-          attemptNumber: a.attemptNumber,
-          at: a.attemptedAt,
-        });
-      }
-    }
-  }
-  return found;
 }
 
 export function createReconcileService(deps: ReconcileDeps): ReconcileService {
@@ -185,44 +134,48 @@ export function createReconcileService(deps: ReconcileDeps): ReconcileService {
       await deps.xp.recomputeXp(userId, { force: opts.forceXp === true });
     }
 
-    // 2b. Cooldowns whose audit entry was never written (the cooldown itself is enforced from the
-    // ledger, but risk and governance only see the audit entry).
-    const history = await QuizAttempt.find({ userId: owner })
-      .select('type refId attemptNumber passed attemptedAt')
-      .sort({ _id: 1 })
-      .limit(5000)
+    // 2b. Cooldowns that really happened (recorded on the attempt ledger in the same atomic update
+    // that started them) but whose audit entry was never written. Never inferred from attempt
+    // history: replaying it under today's rule would invent cooldowns after a configuration change.
+    const counters = await AttemptCounter.find({ userId: owner })
+      .select('assessmentId cooldowns')
       .lean();
-    for (const c of cooldownsFromHistory(history, deps.cooldown.afterFails)) {
-      const key = `cooldown:${userId}:${c.assessmentId}:${String(c.attemptNumber)}`;
-      const exists = await AuditLog.exists({
-        action: 'learning.assessment.cooldown',
-        targetId: owner,
-        $or: [
-          { idempotencyKey: key },
-          { 'metadata.assessmentId': c.assessmentId, 'metadata.attemptNumber': c.attemptNumber },
-        ],
-      });
-      if (exists) continue;
-      diff.auditWritten += 1;
-      if (dryRun) continue;
-      await audit.record({
-        action: 'learning.assessment.cooldown',
-        outcome: 'success',
-        severity: 'warning',
-        actor: { id: owner, role: 'employee' },
-        target: { type: 'user', id: owner },
-        idempotencyKey: key,
-        at: c.at,
-        metadata: {
-          assessmentId: c.assessmentId,
-          kind: c.kind,
-          failedAttempts: deps.cooldown.afterFails,
-          attemptNumber: c.attemptNumber,
-          cooldownMinutes: deps.cooldown.minutes,
-          until: new Date(c.at.getTime() + deps.cooldown.minutes * 60_000).toISOString(),
-          rebuilt: true,
-        },
-      });
+    for (const counter of counters) {
+      for (const c of counter.cooldowns) {
+        const assessmentId = counter.assessmentId.toHexString();
+        const key = `cooldown:${userId}:${assessmentId}:${String(c.attemptNumber)}`;
+        const exists = await AuditLog.exists({
+          action: 'learning.assessment.cooldown',
+          targetId: owner,
+          seq: numericSeqFilter(),
+          $or: [
+            { idempotencyKey: key },
+            { 'metadata.assessmentId': assessmentId, 'metadata.attemptNumber': c.attemptNumber },
+          ],
+        });
+        if (exists) continue;
+        diff.auditWritten += 1;
+        if (dryRun) continue;
+        const kind = (await Assessment.findById(counter.assessmentId).select('kind').lean())?.kind;
+        await audit.record({
+          action: 'learning.assessment.cooldown',
+          outcome: 'success',
+          severity: 'warning',
+          actor: { id: owner, role: 'employee' },
+          target: { type: 'user', id: owner },
+          idempotencyKey: key,
+          at: c.startedAt,
+          metadata: {
+            assessmentId,
+            kind: kind ?? 'Quiz',
+            failedAttempts: c.afterFails,
+            attemptNumber: c.attemptNumber,
+            cooldownMinutes: c.minutes,
+            until: c.until.toISOString(),
+            rebuilt: true,
+          },
+        });
+      }
     }
 
     // 3. Risk profile, the High-episode escalation and the assessment pointer.
@@ -313,7 +266,7 @@ export function createReconcileService(deps: ReconcileDeps): ReconcileService {
     const changes = await RiskAssessment.find({ userId: owner, levelChanged: true }).lean();
     for (const c of changes) {
       const key = `risk:${c._id.toHexString()}:level_changed`;
-      if (await AuditLog.exists({ idempotencyKey: key })) continue;
+      if (await AuditLog.exists({ idempotencyKey: key, seq: numericSeqFilter() })) continue;
       if (dryRun) {
         diff.auditWritten += 1;
         continue;

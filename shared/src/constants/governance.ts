@@ -5,6 +5,7 @@ export const ESCALATION_REASONS = [
   'gate_access_restricted',
   'repeated_assessment_cooldowns',
   'disengaged_unassessed',
+  'disengaged_no_progress',
 ] as const;
 export type EscalationReason = (typeof ESCALATION_REASONS)[number];
 

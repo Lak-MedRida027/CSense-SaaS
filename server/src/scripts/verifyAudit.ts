@@ -15,7 +15,8 @@ import { AuditLog, numericSeqFilter } from '../models/index.js';
 /** A trusted operator object for a query value (the global sanitizeFilter would wrap it). */
 const operators = (value: object): never => trusted(value) as never;
 
-export type VerifyBreakReason = ChainBreakReason | 'unchained_after_chain' | 'non_numeric_seq';
+export type VerifyBreakReason =
+  ChainBreakReason | 'unchained_after_chain' | 'non_numeric_seq' | 'unchained_idempotency_key';
 
 export interface VerifyAuditResult extends Omit<ChainReport, 'firstBreak' | 'ok'> {
   ok: boolean;
@@ -25,6 +26,8 @@ export interface VerifyAuditResult extends Omit<ChainReport, 'firstBreak' | 'ok'
   unchainedLegacy: number;
   /** Rows with no `seq` written at or after the chain started. These are a break. */
   unchainedAfterChain: number;
+  /** Rows with no `seq` that hold an idempotency key, whatever their date. These are a break. */
+  unchainedWithKey: number;
   /** Rows whose `seq` is not a number. These are a break. */
   nonNumericSeq: number;
 }
@@ -61,28 +64,34 @@ export async function verifyAuditChain(opts: {
     .select('createdAt')
     .lean();
   const unchained = operators({ $exists: false });
-  const [unchainedAfterChain, unchainedLegacy, nonNumericSeq] = await Promise.all([
-    firstChained
-      ? AuditLog.countDocuments({
-          seq: unchained,
-          createdAt: operators({ $gte: firstChained.createdAt }),
-        })
-      : Promise.resolve(0),
-    firstChained
-      ? AuditLog.countDocuments({
-          seq: unchained,
-          createdAt: operators({ $lt: firstChained.createdAt }),
-        })
-      : AuditLog.countDocuments({ seq: unchained }),
-    AuditLog.countDocuments({ seq: operators({ $exists: true, $not: { $type: 'number' } }) }),
-  ]);
+  const [unchainedAfterChain, unchainedLegacy, nonNumericSeq, unchainedWithKey] = await Promise.all(
+    [
+      firstChained
+        ? AuditLog.countDocuments({
+            seq: unchained,
+            createdAt: operators({ $gte: firstChained.createdAt }),
+          })
+        : Promise.resolve(0),
+      firstChained
+        ? AuditLog.countDocuments({
+            seq: unchained,
+            createdAt: operators({ $lt: firstChained.createdAt }),
+          })
+        : AuditLog.countDocuments({ seq: unchained }),
+      AuditLog.countDocuments({ seq: operators({ $exists: true, $not: { $type: 'number' } }) }),
+      // A planted row holding a (predictable) idempotency key could swallow a real write.
+      AuditLog.countDocuments({ seq: unchained, idempotencyKey: operators({ $type: 'string' }) }),
+    ],
+  );
 
   const extra: VerifyAuditResult['firstBreak'] =
     nonNumericSeq > 0
       ? { seq: null, reason: 'non_numeric_seq' }
-      : unchainedAfterChain > 0
-        ? { seq: null, reason: 'unchained_after_chain' }
-        : null;
+      : unchainedWithKey > 0
+        ? { seq: null, reason: 'unchained_idempotency_key' }
+        : unchainedAfterChain > 0
+          ? { seq: null, reason: 'unchained_after_chain' }
+          : null;
   const firstBreak = report.firstBreak ?? extra;
   return {
     checked: report.checked,
@@ -92,6 +101,7 @@ export async function verifyAuditChain(opts: {
     firstBreak,
     unchainedLegacy,
     unchainedAfterChain,
+    unchainedWithKey,
     nonNumericSeq,
   };
 }
@@ -117,6 +127,7 @@ export async function verifyAndRecord(opts: {
       checked: result.checked,
       unchainedLegacy: result.unchainedLegacy,
       unchainedAfterChain: result.unchainedAfterChain,
+      unchainedWithKey: result.unchainedWithKey,
       nonNumericSeq: result.nonNumericSeq,
       ...(result.firstBreak ? { firstBreak: result.firstBreak } : {}),
     },

@@ -1,4 +1,6 @@
+import { randomUUID } from 'node:crypto';
 import { Types } from 'mongoose';
+import type { Logger } from 'pino';
 import {
   isWellFormedString,
   type AuditAction,
@@ -7,8 +9,15 @@ import {
   type AuditTargetType,
   type Role,
 } from '@csense/shared';
-import { Mutex } from '../../lib/mutex.js';
-import { AuditLog, GENESIS_HASH, numericSeq } from '../../models/AuditLog.js';
+import { Mutex, MutexTimeoutError } from '../../lib/mutex.js';
+import {
+  AuditLog,
+  AuditWriteAbortedError,
+  GENESIS_HASH,
+  auditWriteContext,
+  numericSeq,
+  unchainedSeq,
+} from '../../models/AuditLog.js';
 import { canonicalEntry, hmacHex, type ChainFields } from './chain.js';
 
 /** Request-derived context attached to audit entries. */
@@ -153,6 +162,8 @@ const processMutex = new Mutex();
 
 /** One audit write (tip read plus insert) that takes longer than this is abandoned and fails. */
 export const DEFAULT_WRITE_TIMEOUT_MS = 10_000;
+/** After a timeout, how long to wait for the abandoned write to settle before looking up its outcome. */
+const SETTLE_GRACE_MS = 1_000;
 
 export interface AuditServiceDeps {
   chainSecret: string;
@@ -160,28 +171,54 @@ export interface AuditServiceDeps {
   mutex?: Mutex;
   /** Per-write time limit while holding the mutex (default 10 s). */
   writeTimeoutMs?: number;
+  /** Receives integrity errors (a planted row holding an idempotency key). */
+  logger?: Logger;
+}
+
+/** The audit log holds something it should not: the write is refused rather than hidden. */
+export class AuditIntegrityError extends Error {
+  readonly code = 'AUDIT_INTEGRITY';
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuditIntegrityError';
+  }
 }
 
 /**
  * The only writer of the audit log (ADR 0012). Under a mutex it reads the chain tip, builds the
  * next entry (seq, prevHash, HMAC) and inserts it. Another process winning the same `seq` is
  * handled by re-reading the tip and retrying.
+ *
+ * Every call has an idempotency key (the one supplied, or a generated one) so the true outcome of a
+ * write that timed out can always be looked up. An abandoned write is cancelled: its signal is
+ * checked before each insert and by the model, so it cannot land after the caller was told it failed.
  */
 export function createAuditService(deps: AuditServiceDeps): AuditService {
   const clock = deps.clock ?? (() => new Date());
   const mutex = deps.mutex ?? processMutex;
 
+  /** Only chained rows count: a planted unchained row holding the key is not a prior write. */
   const existing = async (key: string): Promise<AuditRecordResult | null> => {
-    const found = await AuditLog.findOne({ idempotencyKey: key }).select('seq').lean();
+    const found = await AuditLog.findOne({ idempotencyKey: key, seq: numericSeq() })
+      .select('seq')
+      .lean();
     return found ? { id: found._id.toHexString(), seq: found.seq ?? 0, duplicate: true } : null;
   };
 
   return {
     async record(input) {
-      const key = input.idempotencyKey ?? null;
-      if (key !== null) {
-        const prior = await existing(key);
+      const supplied = input.idempotencyKey ?? null;
+      const key = supplied ?? `auto:${randomUUID()}`;
+      if (supplied !== null) {
+        const prior = await existing(supplied);
         if (prior) return prior;
+        if (await AuditLog.exists({ idempotencyKey: supplied, seq: unchainedSeq() })) {
+          deps.logger?.error(
+            { event: 'audit_integrity', idempotencyKey: supplied },
+            'An unchained audit row holds an idempotency key; the write was refused',
+          );
+          throw new AuditIntegrityError('An unchained audit row holds this idempotency key');
+        }
       }
       const base: Omit<ChainFields, 'seq' | 'prevHash'> = {
         createdAt: input.at ?? clock(),
@@ -199,51 +236,74 @@ export function createAuditService(deps: AuditServiceDeps): AuditService {
         metadata: toJsonValue(sanitizeMetadata(input.metadata ?? {})),
       };
 
-      return mutex.run(async () => {
-        for (let attempt = 0; attempt < MAX_SEQ_RETRIES; attempt += 1) {
-          // Only numeric sequence numbers count: a planted row with another type must not become the tip.
-          const tip = await AuditLog.findOne({ seq: numericSeq() })
-            .sort({ seq: -1 })
-            .select('seq hash')
-            .lean();
-          const seq = (tip?.seq ?? 0) + 1;
-          const prevHash = tip?.hash ?? GENESIS_HASH;
-          const fields: ChainFields = { ...base, seq, prevHash };
-          const hash = hmacHex(deps.chainSecret, canonicalEntry(fields));
-          try {
-            const doc = await AuditLog.create({
-              seq,
-              prevHash,
-              hash,
-              idempotencyKey: key,
-              action: input.action,
-              outcome: input.outcome,
-              severity: input.severity ?? 'info',
-              actorId: fields.actorId === null ? null : new Types.ObjectId(fields.actorId),
-              actorRole: input.actor?.role ?? null,
-              targetType: input.target?.type ?? null,
-              targetId: fields.targetId === null ? null : new Types.ObjectId(fields.targetId),
-              ip: fields.ip,
-              userAgent: fields.userAgent,
-              requestId: fields.requestId,
-              metadata: fields.metadata,
-              createdAt: fields.createdAt,
-            });
-            return { id: String(doc._id), seq, duplicate: false };
-          } catch (err) {
-            if (!isDuplicateKey(err)) throw err;
-            const pattern = err.keyPattern ?? {};
-            if (key !== null && 'idempotencyKey' in pattern) {
-              const prior = await existing(key);
-              if (prior) return prior;
+      const write = (signal: AbortSignal): Promise<AuditRecordResult> =>
+        auditWriteContext.run({ signal }, async () => {
+          // Re-read on every use: the signal can flip while an await is pending.
+          const isAborted = (): boolean => signal.aborted;
+          for (let attempt = 0; attempt < MAX_SEQ_RETRIES; attempt += 1) {
+            if (isAborted()) throw new AuditWriteAbortedError();
+            // Only numeric sequence numbers count: a planted row must not become the tip.
+            const tip = await AuditLog.findOne({ seq: numericSeq() })
+              .sort({ seq: -1 })
+              .select('seq hash')
+              .lean();
+            const seq = (tip?.seq ?? 0) + 1;
+            const prevHash = tip?.hash ?? GENESIS_HASH;
+            const fields: ChainFields = { ...base, seq, prevHash };
+            const hash = hmacHex(deps.chainSecret, canonicalEntry(fields));
+            try {
+              // Checked immediately before the insert; the model checks again when it validates.
+              if (isAborted()) throw new AuditWriteAbortedError();
+              const doc = await AuditLog.create({
+                seq,
+                prevHash,
+                hash,
+                idempotencyKey: key,
+                action: input.action,
+                outcome: input.outcome,
+                severity: input.severity ?? 'info',
+                actorId: fields.actorId === null ? null : new Types.ObjectId(fields.actorId),
+                actorRole: input.actor?.role ?? null,
+                targetType: input.target?.type ?? null,
+                targetId: fields.targetId === null ? null : new Types.ObjectId(fields.targetId),
+                ip: fields.ip,
+                userAgent: fields.userAgent,
+                requestId: fields.requestId,
+                metadata: fields.metadata,
+                createdAt: fields.createdAt,
+              });
+              return { id: String(doc._id), seq, duplicate: false };
+            } catch (err) {
+              if (!isDuplicateKey(err)) throw err;
+              const pattern = err.keyPattern ?? {};
+              if ('idempotencyKey' in pattern) {
+                const prior = await existing(key);
+                if (prior) return prior;
+              }
+              if (!('seq' in pattern)) throw err;
+              // Another writer took this seq: back off a little, re-read the tip and try again.
+              await sleep(Math.random() * 5 * (attempt + 1));
             }
-            if (!('seq' in pattern)) throw err;
-            // Another writer took this seq: back off a little, re-read the tip and try again.
-            await sleep(Math.random() * 5 * (attempt + 1));
           }
+          throw new Error('Audit log is busy: could not append after several attempts');
+        });
+
+      try {
+        return await mutex.run(write, deps.writeTimeoutMs ?? DEFAULT_WRITE_TIMEOUT_MS);
+      } catch (err) {
+        if (!(err instanceof MutexTimeoutError)) throw err;
+        // The caller must be told the truth. The write is cancelled (its signal is aborted), but an
+        // insert already on the wire may have landed: wait briefly for it, then look it up by key.
+        await Promise.race([err.settled, sleep(SETTLE_GRACE_MS)]);
+        let landed: AuditRecordResult | null = null;
+        try {
+          landed = await existing(key);
+        } catch {
+          landed = null; // outcome unknown: fail closed with the timeout
         }
-        throw new Error('Audit log is busy: could not append after several attempts');
-      }, deps.writeTimeoutMs ?? DEFAULT_WRITE_TIMEOUT_MS);
+        if (landed) return { ...landed, duplicate: false };
+        throw err;
+      }
     },
   };
 }

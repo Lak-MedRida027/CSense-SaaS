@@ -188,9 +188,11 @@ describe('escalation workflow (admin)', () => {
   });
 
   it('EW7: a note on a resolved escalation is accepted and audited without changing the state', async () => {
-    const { admin, path } = await setup();
+    const { t, admin, path } = await setup();
     await admin.patch(path, { action: 'acknowledge', expectedVersion: 0 });
-    await admin.patch(path, {
+    // false_positive is not remediation: a second administrator closes it (P4-L11).
+    const second = await adminClient(t.app, creds);
+    await second.patch(path, {
       action: 'resolve',
       expectedVersion: 1,
       resolution: 'false_positive',

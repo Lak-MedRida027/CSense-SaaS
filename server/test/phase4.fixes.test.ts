@@ -1,5 +1,5 @@
 import { Types } from 'mongoose';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   ESCALATION_ADMIN_RESERVE,
   ESCALATION_EVENTS_MAX,
@@ -16,6 +16,7 @@ import {
 import { Mutex, MutexTimeoutError } from '../src/lib/mutex.js';
 import { markerBackoffMs, MARKER_MAX_ATTEMPTS } from '../src/features/maintenance/sweeper.js';
 import {
+  AttemptCounter,
   AuditLog,
   Escalation,
   QuizAttempt,
@@ -96,26 +97,50 @@ describe('P4-M1: retriggers cannot exhaust an escalation', () => {
 });
 
 describe('P4-M2 / P4-L7: reconcile repairs cooldown escalations and audit entries', () => {
-  it('rebuilds a missing cooldown audit entry from the attempt history, exactly once', async () => {
+  it('rebuilds a cooldown audit entry whose write failed, from the ledger, exactly once', async () => {
     const t = await buildGamificationApp({
       learning: { cooldownAfterFails: 3, cooldownMinutes: 15 },
+      accessTtlSeconds: 7200,
     });
     const cur = await createCurriculum({ count: 1 });
     const m1 = first(cur.modules);
-    const emp = await createEmployee(creds);
-    // Six failed attempts = two cooldowns by the rule; the audit log has neither.
-    await insertAttempts(
-      emp.id,
-      [1, 2, 3, 4, 5, 6].map((n) => ({
-        assessmentId: m1.quizId,
-        moduleId: m1.id,
-        attemptNumber: n,
-        correct: 1,
-        attemptedAt: new Date(Date.now() - (7 - n) * 60_000), // recent, inside the window
-      })),
-    );
+    const emp = await signedInEmployee(t.app, creds);
+    await completeContent(emp, m1);
+    const real = createAuditService({ chainSecret: testChainSecret });
+    const spy = vi
+      .spyOn(audit, 'record')
+      .mockImplementation((input) =>
+        input.action === 'learning.assessment.cooldown'
+          ? Promise.reject(new Error('audit down'))
+          : real.record(input),
+      );
+    try {
+      for (let round = 0; round < 2; round += 1) {
+        for (let i = 0; i < 3; i += 1) {
+          const { session } = await startQuiz(emp, m1.id);
+          await submitQuiz(emp, m1.id, session, cur.keys, 1);
+        }
+        t.advance(16 * 60_000);
+      }
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await AuditLog.countDocuments({ action: 'learning.assessment.cooldown' })).toBe(0);
+    const counter = await AttemptCounter.findOne({ userId: emp.id }).lean();
+    expect(counter?.cooldowns.map((c) => [c.attemptNumber, c.afterFails, c.minutes])).toEqual([
+      [3, 3, 15],
+      [6, 3, 15],
+    ]);
+    // The failed writes left a marker that carries the exact idempotency keys.
+    const marker = await ReconcileMarker.findOne({ userId: emp.id }).lean();
+    expect(marker?.reasons).toContain('audit');
+    expect(marker?.auditKeys).toEqual([
+      `cooldown:${emp.id}:${m1.quizId}:3`,
+      `cooldown:${emp.id}:${m1.quizId}:6`,
+    ]);
+
     const dry = await t.g.reconcile.reconcileUser(emp.id, { dryRun: true });
-    expect(dry.auditWritten).toBeGreaterThanOrEqual(2);
+    expect(dry.auditWritten).toBe(2);
     expect(await AuditLog.countDocuments({ action: 'learning.assessment.cooldown' })).toBe(0);
 
     await t.g.reconcile.reconcileUser(emp.id);
@@ -126,13 +151,15 @@ describe('P4-M2 / P4-L7: reconcile repairs cooldown escalations and audit entrie
       `cooldown:${emp.id}:${m1.quizId}:3`,
       `cooldown:${emp.id}:${m1.quizId}:6`,
     ]);
-    expect(rebuilt[0]?.metadata).toMatchObject({ attemptNumber: 3, rebuilt: true });
-    // Risk and governance now see them: Behavioural carries the penalty and the escalation exists.
+    expect(rebuilt[0]?.metadata).toMatchObject({
+      attemptNumber: 3,
+      rebuilt: true,
+      failedAttempts: 3,
+    });
     expect((await RiskProfile.findOne({ userId: emp.id }).lean())?.evidence?.cooldowns).toBe(2);
     expect(
       await Escalation.countDocuments({ userId: emp.id, reason: 'repeated_assessment_cooldowns' }),
     ).toBe(1);
-    // A second run adds nothing.
     await t.g.reconcile.reconcileUser(emp.id);
     expect(await AuditLog.countDocuments({ action: 'learning.assessment.cooldown' })).toBe(2);
   });

@@ -89,7 +89,7 @@ async function activeDisengaged(ids: readonly Types.ObjectId[]): Promise<Set<str
   if (ids.length === 0) return new Set();
   const rows = await Escalation.find({
     userId: trusted({ $in: [...ids] }),
-    reason: 'disengaged_unassessed',
+    reason: trusted({ $in: ['disengaged_unassessed', 'disengaged_no_progress'] }),
     active: true,
   })
     .select('userId')

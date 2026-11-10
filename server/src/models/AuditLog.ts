@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Schema, model, trusted, type InferSchemaType } from 'mongoose';
 import {
   AUDIT_ACTIONS,
@@ -20,6 +21,24 @@ export const GENESIS_HASH = '0'.repeat(64);
  * never become the chain tip.
  */
 export const numericSeq = (): never => trusted({ $type: 'number' }) as never;
+
+/** Filter value for "this row is NOT part of the chain": no `seq`, or one that is not a number. */
+export const unchainedSeq = (): never => trusted({ $not: { $type: 'number' } }) as never;
+
+/**
+ * The audit service runs every write inside this context. When the write has been abandoned (its
+ * time limit passed and the caller was told it failed), the model refuses to insert, wherever the
+ * call is in flight: a write reported as failed must never land afterwards.
+ */
+export const auditWriteContext = new AsyncLocalStorage<{ signal: AbortSignal }>();
+
+export class AuditWriteAbortedError extends Error {
+  readonly code = 'AUDIT_WRITE_ABORTED';
+  constructor() {
+    super('Audit write was abandoned after its time limit');
+    this.name = 'AuditWriteAbortedError';
+  }
+}
 
 export class AuditLogImmutableError extends Error {
   readonly code = 'AUDIT_LOG_IMMUTABLE';
@@ -98,6 +117,7 @@ auditLogSchema.pre(
     invalidate: (path: string, message: string) => unknown;
   }) {
     if (!this.isNew) return;
+    if (auditWriteContext.getStore()?.signal.aborted === true) throw new AuditWriteAbortedError();
     for (const path of ['seq', 'prevHash', 'hash'] as const) {
       if (this[path] == null) this.invalidate(path, `${path} is required (use the audit service)`);
     }
