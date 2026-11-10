@@ -224,11 +224,19 @@ describe('P4-L8: separation of duties on resolve', () => {
     const resolves = await Promise.all(
       [a, b].map((c) => c.patch(path, resolveBody({ resolution: 'risk_accepted' }))),
     );
-    expect(resolves.map((r) => r.status).sort()).toEqual([200, 403]);
+    // Exactly one resolve wins. The acknowledger's request is refused either way: 403
+    // SEPARATION_OF_DUTIES when it is evaluated while the escalation is still acknowledged, or the
+    // plain 409 state error when the other administrator's resolve has already committed (a resolved
+    // escalation is always the state error). Which one depends on scheduling, not on the rule.
+    const statuses = resolves.map((r) => r.status).sort();
+    expect(statuses[0]).toBe(200);
+    expect([403, 409]).toContain(statuses[1]);
     const stored = await Escalation.findById(e.escalationId).lean();
     expect(stored?.status).toBe('resolved');
     expect(stored?.acknowledgedBy?.toHexString()).not.toBe(stored?.resolvedBy?.toHexString());
-    expect(await AuditLog.countDocuments({ action: 'escalation.resolve_refused' })).toBe(1);
+    expect(await AuditLog.countDocuments({ action: 'escalation.resolve_refused' })).toBe(
+      statuses[1] === 403 ? 1 : 0,
+    );
     expect(await AuditLog.countDocuments({ action: 'escalation.resolved' })).toBe(1);
   });
 
