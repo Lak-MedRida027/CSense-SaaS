@@ -46,7 +46,8 @@ jobs:
       - run: npm run build
 
   e2e:
-    name: Electron e2e (Windows)
+    # Keep this name: the main branch ruleset requires a check called "Electron smoke (Windows)".
+    name: Electron smoke (Windows)
     needs: quality
     runs-on: windows-latest
     timeout-minutes: 30
