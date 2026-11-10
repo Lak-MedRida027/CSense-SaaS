@@ -239,6 +239,10 @@ export function createGateService(deps: GateServiceDeps): GateService {
       const now = clock();
       const open = await findOpenRun(owner);
       if (open) {
+        // Decide from the run as read now, never from the status read above: a concurrent call may
+        // have created this run (with a live challenge) in between. Replacing a live challenge would
+        // let parallel requests reveal extra questions without consuming an attempt.
+        if (open.current && !expired(open.current.servedAt, now)) return statusOf(owner);
         // No live challenge on the open run (expired, or the pool was empty when the last answer
         // was graded): serve a new one. The attempt count is untouched. Questions already answered
         // in this run are excluded; the expired one may be served again.

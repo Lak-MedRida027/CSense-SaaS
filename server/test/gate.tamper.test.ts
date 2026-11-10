@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import request from 'supertest';
-import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GateAnswer, GateRun } from '../src/models/index.js';
 import { loginOk, makeCredentials } from './helpers/fixtures.js';
 import {
@@ -142,6 +142,49 @@ describe('gate tamper resistance', () => {
     expect(results.every((r) => r.status === 200)).toBe(true);
     expect(new Set(results.map((r) => r.body.challenge.challengeId)).size).toBe(1);
     expect(await GateRun.countDocuments({ userId: e.id })).toBe(1);
+  });
+
+  it('GT12c: a request that saw no run never replaces the live challenge a concurrent request created', async () => {
+    // Regression for the CI failure on PR 6 (GT12b returned two challenge ids). The interleaving is
+    // forced: request B reads the gate status before any run exists, request A then creates the run
+    // with a live challenge, and only then does B look for the open run. B must serve A's challenge
+    // instead of replacing it, which would reveal an extra question without consuming an attempt.
+    const e = await gateEmployee(t.app, creds);
+    const original = GateRun.findOne.bind(GateRun) as (...a: unknown[]) => {
+      lean: () => Promise<unknown>;
+    };
+    let release: () => void = () => undefined;
+    const aCreated = new Promise<void>((r) => {
+      release = r;
+    });
+    let openQueries = 0;
+    const hold = { parked: false };
+    const spy = vi.spyOn(GateRun, 'findOne').mockImplementation(((...args: unknown[]) => {
+      const filter = (args[0] ?? {}) as { status?: unknown };
+      if (filter.status === 'open') {
+        openQueries += 1;
+        // B's first open-run query is inside the status read; the second is openChallenge's own
+        // lookup, which waits until A has created the run.
+        if (openQueries === 2) {
+          hold.parked = true;
+          return { lean: () => aCreated.then(() => original(...args).lean()) };
+        }
+      }
+      return original(...args);
+    }) as never);
+    const b = postChallenge(t.app, e.token);
+    for (let i = 0; i < 100 && !hold.parked; i += 1) await new Promise((r) => setTimeout(r, 10));
+    spy.mockRestore();
+    expect(hold.parked).toBe(true);
+    const a = await postChallenge(t.app, e.token);
+    release();
+    const bRes = await b;
+    expect(a.status).toBe(200);
+    expect(bRes.status).toBe(200);
+    expect(bRes.body.challenge.challengeId).toBe(a.body.challenge.challengeId);
+    const run = await GateRun.findOne({ userId: new Types.ObjectId(e.id) }).lean();
+    expect(run?.servedQuestionIds).toHaveLength(1);
+    expect(run?.attemptsUsed).toBe(0);
   });
 
   it("GT13: another employee's challenge id is a 409 that changes and reveals nothing", async () => {
