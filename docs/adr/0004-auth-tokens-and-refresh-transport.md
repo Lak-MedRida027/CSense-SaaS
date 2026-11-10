@@ -144,3 +144,6 @@ All approved as the recommended defaults:
   charset, at least 43 characters, at least 16 distinct characters; review fix P2-L4) and to differ; `JWT_ACCESS_TTL`, `JWT_REFRESH_TTL`, `BCRYPT_COST`.
 - Follow-ups: Phase 5 ADR on whether the main process also holds the access token and proxies every
   API call (recommended); Phase 10 shared rate-limit store if the API is scaled out.
+
+## Amendment (Phase 5 desktop client)
+The Phase 5 follow-up is resolved by ADR 0014: the Electron main process holds both tokens (refresh token encrypted with `safeStorage`, memory-only when encryption is unavailable, never plaintext; access token in main memory), every API call goes through a main-process client with a fixed operations table and single-flight refresh, and the renderer never sees a token. A crash between the server rotating the refresh token and the client persisting it signs the user out at next launch (treated as reuse); that is the accepted secure outcome.

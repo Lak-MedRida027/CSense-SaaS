@@ -75,6 +75,7 @@ export {
   UserCog,
   Users,
   Volume2,
+  WifiOff,
   VolumeX,
   X,
   Zap,

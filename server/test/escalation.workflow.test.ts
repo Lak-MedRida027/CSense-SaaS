@@ -150,11 +150,11 @@ describe('escalation workflow (admin)', () => {
   });
 
   it('EW6: resolving a management-tier escalation needs a management reference', async () => {
-    const t = await buildGamificationApp();
+    const t = await buildGamificationApp({ features: { phishing: true, continuousReview: false } });
     const emp = await createEmployee(creds);
     const { escalationId } = await t.g.escalations.recordCriticalEvent({
       userId: emp.id,
-      reason: 'gate_access_restricted',
+      reason: 'simulation_credentials_submitted',
       sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
       occurredAt: new Date(),
     });

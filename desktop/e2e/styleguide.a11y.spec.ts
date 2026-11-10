@@ -1,4 +1,7 @@
 /// <reference lib="dom" />
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import AxeBuilder from '@axe-core/playwright';
 import {
   _electron as electron,
@@ -7,6 +10,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
+import { cleanup, forceClose } from './support/launch';
 
 /**
  * Design-system accessibility gate: axe (WCAG 2.0/2.1 A + AA, including colour contrast in a real
@@ -20,6 +24,7 @@ import {
 let app: ElectronApplication;
 let page: Page;
 let styleguideAvailable = false;
+let userDataDir = '';
 
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
@@ -40,7 +45,12 @@ async function expectNoViolations(label: string): Promise<void> {
 }
 
 test.beforeAll(async () => {
-  app = await electron.launch({ args: ['out/main/index.js'] });
+  userDataDir = mkdtempSync(join(tmpdir(), 'csense-a11y-'));
+  // Isolated user data; no API is configured, so the app sits on its locked gate while the styleguide renders.
+  app = await electron.launch({
+    args: ['out/main/index.js'],
+    env: { ...(process.env as Record<string, string>), CSENSE_USER_DATA_DIR: userDataDir },
+  });
   page = await app.firstWindow();
   await page.waitForLoadState('domcontentloaded');
   await goto('#/styleguide/tokens');
@@ -59,7 +69,9 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  await app.close();
+  // Quit is refused while the gate is locked (by design), so end the process tree directly.
+  await forceClose(app);
+  cleanup(userDataDir);
 });
 
 test.beforeEach(() => {

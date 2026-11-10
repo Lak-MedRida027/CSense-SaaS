@@ -85,7 +85,16 @@ Active:
 ```
 - Questions render only when `lockdownState === 'active'`; entering/exiting/failed show a
   status view. A persistent info-blue frame and banner make secure mode obvious.
-- Exit: Esc is blocked during lockdown, so `[Exit quiz]` is always visible and keyboard-reachable.
+- Exit: `[Exit quiz]` is always visible and keyboard-reachable (WCAG 2.1.2). **Esc (D5-19, amended in Phase 5):** the
+  main process lets Escape through to the renderer only so it can close the "Leave the quiz?" dialog (focus starts on
+  "Keep going"); Escape never exits lockdown. Leaving always goes through the dialog.
+- Focus loss (D5-15): each loss longer than 500 ms shows, in the banner (`role=alert`, polite): "You left secure mode.
+  Leaving N more time(s) ends this attempt." At the 3rd loss, or 15 s away, main ends the attempt (abandoned) and the
+  result page says "This attempt ended because CSense lost focus."
+- After a renderer crash main reloads the screen once and the banner says "CSense restarted the quiz screen. Your
+  earlier answers were not kept."; a second crash ends the attempt.
+- Copy, cut, paste, context menu and drag are blocked by main and, as a second layer, by `LockdownShell`.
+- Phase 5 shows the result only; `Review answers` is hidden until Phase 6 (`onReviewAnswers` is optional).
   It opens an alertdialog ("Leave the quiz? ... counts as an attempt", Keep going focused).
 - Review and submit lists answered/unanswered (caution alert for gaps), then `[Submit answers]`.
 - Result: ScoreSummary (score, Passed/Not passed, pass mark from props, XP, badge), then
@@ -125,3 +134,18 @@ Seams: `onOpenModule`, `onOpenBadge`, `onStartFinalAssessment`, `onNavigate`, `o
 ```
 Seams: `onSortChange`, `onFilterChange`, `onPageChange`, `onOpenEmployee`, `onReviewEscalation`,
 `onGenerateReport(kindId)` (dialog with report types), `onOpenKpi`, `onNavigate`, `onRetry(section)`.
+
+## Phase 5 additions: gate wiring and states
+
+- **Sign out** link on the challenge and restricted screens (`onSignOut`), for shared workstations. It returns to
+  Login with the window still locked.
+- **Wrong answer:** "Not quite" plus the explanation, and a *different* question (selection is cleared per challenge).
+- **Transport error while answering** is an `Alert` ("Can't reach CSense..."), never shown as a wrong answer.
+- **Checking** (`GateBootScreen`): spinner and polite heading while main resolves the session and gate status.
+- **Offline** (`GateOfflineScreen`): "Can't reach CSense", retries automatically, `Retry now`. After the grace period
+  (default 120 s, D5-12) an explicit `Continue offline` appears with a caution alert; the gate re-locks as soon as the
+  API answers and no clearance exists. Under the fail-closed build flag the button never appears.
+- **Misconfigured** (`GateMisconfiguredScreen`): "CSense is misconfigured", contact IT. No actions, no network.
+- **Session ended:** Login shows "Your session ended. Please sign in again."
+- **Training home** (`TrainingHomeScreen`, temporary, replaced by the dashboard in Phase 6): module list with derived
+  status, unlock rule, `Start quiz` only where main reports the quiz can start, administrator placeholder.

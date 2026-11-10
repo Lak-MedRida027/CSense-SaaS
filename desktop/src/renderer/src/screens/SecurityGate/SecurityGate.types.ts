@@ -26,6 +26,8 @@ export interface SecurityGateScreenProps {
   feedback?: GateFeedback | undefined;
   /** True while the answer is being checked. */
   submitting?: boolean | undefined;
+  /** Transport/server problem while submitting (not a wrong answer). */
+  errorMessage?: string | undefined;
   /** Seam: submit the selected option. Correctness is decided outside the UI. */
   onSubmitGateAnswer: (optionId: string) => void;
   /** Seam: proceed once access is granted. */
@@ -44,6 +46,8 @@ export interface SecurityGateScreenProps {
         contactText?: string | undefined;
       }
     | undefined;
+  /** Seam: sign out (shared workstations). Offered on the challenge and restricted screens. */
+  onSignOut?: (() => void) | undefined;
   appVersion?: string | undefined;
   helpText?: string | undefined;
 }

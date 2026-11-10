@@ -13,6 +13,11 @@ export interface LockdownBannerProps {
   onRequestExit: () => void;
   /** Shown while active; defaults to the plain-language restriction notice. */
   message?: string | undefined;
+  /**
+   * A short-lived notice about the user's last action, e.g. "You left secure mode. Leaving 2 more
+   * times ends this attempt." Announced politely (role="alert" with aria-live="polite").
+   */
+  warning?: string | undefined;
   className?: string | undefined;
 }
 
@@ -33,7 +38,13 @@ const COPY: Record<LockdownState, { title: string; body: string }> = {
  * Persistent, non-dismissible banner shown for the whole time lockdown is active. Esc is blocked
  * during lockdown, so "Exit quiz" is the always-visible, keyboard-reachable way out (WCAG 2.1.2).
  */
-export function LockdownBanner({ state, onRequestExit, message, className }: LockdownBannerProps) {
+export function LockdownBanner({
+  state,
+  onRequestExit,
+  message,
+  warning,
+  className,
+}: LockdownBannerProps) {
   const copy = COPY[state];
   const busy = state === 'entering' || state === 'exiting';
   return (
@@ -48,6 +59,11 @@ export function LockdownBanner({ state, onRequestExit, message, className }: Loc
       <div className={styles.text} role="status" aria-live="polite">
         <p className={styles.title}>{copy.title}</p>
         <p className={styles.body}>{state === 'active' && message ? message : copy.body}</p>
+        {state === 'active' && warning && (
+          <p role="alert" aria-live="polite" className={styles.warning}>
+            {warning}
+          </p>
+        )}
       </div>
       {busy && <Spinner size="sm" decorative />}
       {state === 'active' && (

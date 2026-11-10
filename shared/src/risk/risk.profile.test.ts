@@ -100,7 +100,7 @@ describe('computeRiskProfile', () => {
     expect(reversed).toStrictEqual(forward);
   });
 
-  it('RP4: modelVersion is 1 and the evidence counts are exact', () => {
+  it('RP4: modelVersion is 2 and the evidence counts are exact', () => {
     const result = computeRiskProfile(
       facts(
         [
@@ -114,7 +114,7 @@ describe('computeRiskProfile', () => {
       ),
     );
     expect(result.modelVersion).toBe(RISK_MODEL_VERSION);
-    expect(result.modelVersion).toBe(1);
+    expect(result.modelVersion).toBe(2);
     expect(result.evidence).toStrictEqual({
       attempts: 5,
       firstAttempts: 3,

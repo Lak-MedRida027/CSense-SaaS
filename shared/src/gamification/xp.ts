@@ -1,5 +1,7 @@
 import type { AttemptEndReason } from '../constants/learning.js';
 import { XP_RULES, type XpSource } from '../constants/gamification.js';
+import { GATE_XP_KEY_PREFIX, type GateRunStatus } from '../constants/gate.js';
+import { orgLocalDate } from '../gate/time.js';
 
 /** One stored attempt, reduced to what the XP rules need. */
 export interface AttemptFact {
@@ -19,8 +21,19 @@ export interface ModuleXpFacts {
   practiceFirstTryCorrect: number;
 }
 
+/** One closed gate run, reduced to what the gate XP rule needs. */
+export interface GateXpRunFact {
+  runId: string;
+  status: Extract<GateRunStatus, 'passed' | 'restricted'>;
+  firstAnswerCorrect: boolean;
+  /** ISO-8601. */
+  closedAt: string;
+}
+
 export interface XpFacts {
   modules: readonly ModuleXpFacts[];
+  /** Closed gate runs (ADR 0017). Absent or empty: no gate XP. */
+  gate?: { runs: readonly GateXpRunFact[] } | undefined;
   finalTest: {
     firstAttempt: AttemptFact | null;
     passingAttempt: AttemptFact | null;
@@ -49,7 +62,7 @@ function passingOnly(a: AttemptFact | null): AttemptFact | null {
  * XP is a pure function of attempt facts. Every entry has a unique key, so duplicated or reordered
  * facts give the same result, and retries cannot farm XP: the completion keys exist once per module.
  */
-export function computeXp(facts: XpFacts): XpResult {
+export function computeXp(facts: XpFacts, options: { timeZone?: string } = {}): XpResult {
   const byKey = new Map<string, XpEntry>();
   const add = (entry: XpEntry): void => {
     if (entry.amount > 0 && !byKey.has(entry.key)) byKey.set(entry.key, entry);
@@ -116,6 +129,30 @@ export function computeXp(facts: XpFacts): XpResult {
         ...base,
       });
     }
+  }
+
+  // Gate XP (ADR 0017): one entry per organisation-local day with a passed run whose first answer
+  // was correct. The earliest such run of the day owns the entry, whatever the input order.
+  const timeZone = options.timeZone ?? 'UTC';
+  const earliestPerDay = new Map<string, GateXpRunFact>();
+  for (const run of facts.gate?.runs ?? []) {
+    if (run.status !== 'passed' || !run.firstAnswerCorrect) continue;
+    const day = orgLocalDate(run.closedAt, timeZone);
+    const held = earliestPerDay.get(day);
+    const older =
+      held === undefined ||
+      Date.parse(run.closedAt) < Date.parse(held.closedAt) ||
+      (Date.parse(run.closedAt) === Date.parse(held.closedAt) && run.runId < held.runId);
+    if (older) earliestPerDay.set(day, run);
+  }
+  for (const [day, run] of earliestPerDay) {
+    add({
+      key: `${GATE_XP_KEY_PREFIX}${day}`,
+      source: 'gate_daily_check',
+      amount: XP_RULES.gateDailyCheck,
+      moduleId: null,
+      attemptId: run.runId,
+    });
   }
 
   const entries = [...byKey.values()].sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));

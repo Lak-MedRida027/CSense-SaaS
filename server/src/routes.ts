@@ -3,6 +3,9 @@ import { authRoutes } from './features/auth/auth.routes.js';
 import type { AuthDeps } from './features/auth/auth.service.js';
 import type { FailedLoginFloor, Timing } from './features/auth/failedLoginDelay.js';
 import { auditLogRoutes } from './features/audit/auditLogs.routes.js';
+import { createGateService } from './features/gate/gate.service.js';
+import { gateRoutes } from './features/gate/gate.routes.js';
+import { createRestoreService } from './features/gate/restore.service.js';
 import { gamificationRoutes } from './features/gamification/gamification.routes.js';
 import {
   createGamificationServices,
@@ -75,6 +78,25 @@ export function allRoutes({
       shuffle,
     }),
     ...gamificationRoutes({ badges: gamification.badges }),
+    ...gateRoutes({
+      gate: createGateService({
+        clock,
+        logger,
+        shuffle,
+        gate: config.gate,
+        escalations: gamification.escalations,
+        xp: gamification.xp,
+        risk: gamification.risk,
+        markers: gamification.markers,
+      }),
+      restore: createRestoreService({
+        clock,
+        logger,
+        gate: config.gate,
+        escalations: gamification.escalations,
+        markers: gamification.markers,
+      }),
+    }),
     ...riskRoutes(),
     ...escalationRoutes({ escalations: gamification.escalations }),
     ...auditLogRoutes(),

@@ -36,6 +36,8 @@ export interface QuizScreenProps {
   title: string;
   phase: QuizPhase;
   lockdownState: LockdownState;
+  /** Focus-loss / restart notice shown in the lockdown banner. */
+  lockdownWarning?: string | undefined;
   questions: readonly QuizQuestionData[];
   /** questionId -> optionId (null/missing = unanswered). Controlled by the engineers' state. */
   answers: Readonly<Record<string, string | null | undefined>>;
@@ -60,7 +62,8 @@ export interface QuizScreenProps {
   onSubmit: () => void;
   /** Seam: user confirmed leaving mid-quiz (counts as an attempt, D5). */
   onConfirmExit: () => void;
-  onReviewAnswers: () => void;
+  /** Hidden when not provided (Phase 5 shows the result only; review arrives in Phase 6). */
+  onReviewAnswers?: (() => void) | undefined;
   onBackToResult: () => void;
   onRetry: () => void;
   onContinue: () => void;

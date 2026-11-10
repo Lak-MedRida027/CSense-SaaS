@@ -8,6 +8,8 @@ export const XP_RULES = Object.freeze({
   finalCompletion: 400,
   finalFirstTry: 200,
   finalPerfect: 100,
+  /** Per organisation-local day with a passed gate run whose first answer was correct (ADR 0017). */
+  gateDailyCheck: 10,
 });
 
 export const XP_SOURCES = [
@@ -18,6 +20,7 @@ export const XP_SOURCES = [
   'final_completion',
   'final_first_try',
   'final_perfect',
+  'gate_daily_check',
 ] as const;
 export type XpSource = (typeof XP_SOURCES)[number];
 

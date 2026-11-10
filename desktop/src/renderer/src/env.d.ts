@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  readonly RENDERER_VITE_API_BASE_URL?: string;
+  /** Optional contact line for the restricted-access screen (client branding is pending). */
+  readonly RENDERER_VITE_SECURITY_CONTACT_TEXT?: string;
 }
 
 interface ImportMeta {

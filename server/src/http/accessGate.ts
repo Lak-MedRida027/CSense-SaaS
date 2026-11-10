@@ -1,7 +1,7 @@
 import type { RequestHandler } from 'express';
 import { match, type MatchFunction } from 'path-to-regexp';
 import type { AuthContext } from '@csense/shared';
-import { forbidden, notFoundError, unauthenticated } from '../lib/httpError.js';
+import { accessRestricted, forbidden, notFoundError, unauthenticated } from '../lib/httpError.js';
 import type { RouteDef } from './routeRegistry.js';
 
 /**
@@ -32,7 +32,8 @@ export type Authenticate = (authorizationHeader: string | undefined) => Promise<
 /**
  * The single policy enforcement point. Deny by default:
  * - no registry match -> 404 (so a handler attached any other way is unreachable)
- * - match -> enforce `access`: 401 without a valid session, 403 for the wrong role.
+ * - match -> enforce `access`: 401 without a valid session, 403 for the wrong role, 403
+ *   ACCESS_RESTRICTED for a restricted employee on a route that does not allow it.
  */
 export function accessGate(defs: readonly RouteDef[], authenticate: Authenticate): RequestHandler {
   const compiled: Compiled[] = defs.map((def) => ({
@@ -76,6 +77,11 @@ export function accessGate(defs: readonly RouteDef[], authenticate: Authenticate
           }
           if (found.access.kind === 'role' && !found.access.roles.includes(auth.role)) {
             next(forbidden());
+            return;
+          }
+          // Deny by default for restricted employees (ADR 0015): only routes that opt in are reachable.
+          if (auth.role === 'employee' && auth.accessRestricted && !found.allowWhileRestricted) {
+            next(accessRestricted());
             return;
           }
           locals.auth = auth;

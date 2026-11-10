@@ -30,3 +30,24 @@ describe('LockdownBanner', () => {
     await expectNoA11yViolations(container);
   });
 });
+
+describe('LockdownBanner focus-loss warning', () => {
+  it('announces the warning politely while active, and never while exiting', () => {
+    const warning = 'You left secure mode. Leaving 2 more times ends this attempt.';
+    const { rerender } = render(
+      <LockdownBanner state="active" onRequestExit={() => undefined} warning={warning} />,
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert.textContent).toBe(warning);
+    expect(alert.getAttribute('aria-live')).toBe('polite');
+    rerender(<LockdownBanner state="exiting" onRequestExit={() => undefined} warning={warning} />);
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('has no axe violations with a warning', async () => {
+    const { container } = render(
+      <LockdownBanner state="active" onRequestExit={() => undefined} warning="Careful." />,
+    );
+    await expectNoA11yViolations(container);
+  });
+});

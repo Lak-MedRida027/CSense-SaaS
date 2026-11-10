@@ -22,6 +22,9 @@ export interface ScoreSummaryProps {
   onRetry?: (() => void) | undefined;
   onContinue?: (() => void) | undefined;
   continueLabel?: string | undefined;
+  /** Way out of a result that is not a pass (which has no "continue"), e.g. back to the training list. */
+  onBack?: (() => void) | undefined;
+  backLabel?: string | undefined;
   loading?: boolean | undefined;
   className?: string | undefined;
 }
@@ -40,6 +43,8 @@ export function ScoreSummary({
   onRetry,
   onContinue,
   continueLabel = 'Continue',
+  onBack,
+  backLabel = 'Back to training',
   loading = false,
   className,
 }: ScoreSummaryProps) {
@@ -95,6 +100,11 @@ export function ScoreSummary({
         {!passed && onRetry && (
           <Button iconStart={RotateCcw} onClick={onRetry}>
             Retry quiz
+          </Button>
+        )}
+        {!passed && onBack && (
+          <Button variant="secondary" onClick={onBack}>
+            {backLabel}
           </Button>
         )}
         {passed && onContinue && (

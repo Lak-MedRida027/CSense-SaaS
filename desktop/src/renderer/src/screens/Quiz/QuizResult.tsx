@@ -11,6 +11,7 @@ type QuizResultProps = Pick<
   | 'onReviewAnswers'
   | 'onRetry'
   | 'onContinue'
+  | 'onBackToModule'
 >;
 
 /** Result page (lockdown has exited). Pass/fail and the pass mark come from props. */
@@ -22,6 +23,7 @@ export function QuizResult({
   onReviewAnswers,
   onRetry,
   onContinue,
+  onBackToModule,
 }: QuizResultProps) {
   return (
     <main className={styles.resultPage}>
@@ -40,6 +42,7 @@ export function QuizResult({
             onRetry={onRetry}
             onContinue={onContinue}
             continueLabel={continueLabel}
+            onBack={onBackToModule}
           />
         ) : (
           <ScoreSummary

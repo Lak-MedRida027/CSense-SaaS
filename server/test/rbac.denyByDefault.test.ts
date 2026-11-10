@@ -24,7 +24,11 @@ let t: TestApp;
 let creds: { password: string; hash: string };
 let routes: RouteDef[];
 
-const label = (a: Access): string => (a.kind === 'role' ? `role:${a.roles.join('|')}` : a.kind);
+const label = (r: RouteDef): string => {
+  const a: Access = r.access;
+  const base = a.kind === 'role' ? `role:${a.roles.join('|')}` : a.kind;
+  return r.allowWhileRestricted ? `${base} +allowWhileRestricted` : base;
+};
 const dummyId = new Types.ObjectId().toHexString();
 const concrete = (path: string): string => path.replace(/:[A-Za-z]+/g, dummyId);
 
@@ -36,9 +40,7 @@ beforeAll(async () => {
 
 describe('route table', () => {
   it('B1: the route inventory matches the reviewed (method, path, access) table', () => {
-    const inventory = routes
-      .map((r) => `${r.method.toUpperCase()} ${r.path} ${label(r.access)}`)
-      .sort();
+    const inventory = routes.map((r) => `${r.method.toUpperCase()} ${r.path} ${label(r)}`).sort();
     expect(inventory).toEqual(
       [
         'GET /health public',
@@ -46,8 +48,8 @@ describe('route table', () => {
         'POST /auth/login public',
         'POST /auth/refresh public',
         'POST /auth/logout public',
-        'GET /auth/me authenticated',
-        'GET /config/features authenticated',
+        'GET /auth/me authenticated +allowWhileRestricted',
+        'GET /config/features authenticated +allowWhileRestricted',
         'POST /admin/users role:administrator',
         // Phase 3: the learning engine. Every route is employee-only.
         'GET /modules role:employee',
@@ -74,6 +76,12 @@ describe('route table', () => {
         'GET /admin/escalations/:escalationId role:administrator',
         'PATCH /admin/escalations/:escalationId role:administrator',
         'GET /admin/audit-logs role:administrator',
+        // Phase 5: the security gate. Status and challenge stay reachable while restricted.
+        'GET /gate/status role:employee +allowWhileRestricted',
+        'POST /gate/challenge role:employee +allowWhileRestricted',
+        'POST /gate/attempts role:employee',
+        'POST /gate/offline-releases role:employee +allowWhileRestricted',
+        'POST /admin/users/:userId/restore-access role:administrator',
       ].sort(),
     );
   });

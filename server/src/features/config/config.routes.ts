@@ -7,6 +7,7 @@ export function configRoutes(features: FeatureFlags): RouteDef[] {
       method: 'get',
       path: '/config/features',
       access: AUTHENTICATED,
+      allowWhileRestricted: true,
       handler: (): FeatureFlags => ({ ...features }),
     }),
   ];

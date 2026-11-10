@@ -13,6 +13,8 @@ export interface Limiters {
   refresh: RequestHandler[];
   /** Per-employee throttle on starting quiz / final-test sessions (runs after the access gate). */
   sessionStart: RequestHandler[];
+  /** Per-employee throttle on offline-release reports. */
+  gateReport: RequestHandler[];
   /** Feeds the account-wide counter; called by the login service when it decides a failure. */
   onCredentialsFailure: (email: string) => void;
 }
@@ -235,11 +237,21 @@ export function createLimiters(
     handler: respond(),
   });
 
+  const gateReport = rateLimit({
+    ...common,
+    windowMs: cfg.gateReportWindowMs,
+    limit: cfg.gateReportMax,
+    keyGenerator: (_req, res) =>
+      `user:${(res.locals as { auth?: { userId?: string } | null }).auth?.userId ?? 'anonymous'}`,
+    handler: respond(),
+  });
+
   return {
     global,
     login: [loginPerIp, loginPerAccount],
     refresh: [refreshPerIp],
     sessionStart: [sessionStart],
+    gateReport: [gateReport],
     onCredentialsFailure,
   };
 }

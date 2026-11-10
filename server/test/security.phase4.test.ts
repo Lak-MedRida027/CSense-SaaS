@@ -368,11 +368,11 @@ describe('escalation workflow under attack', () => {
   // the escalation from MongoDB (which has already replaced the lone surrogate with U+FFFD) before
   // hashing. If the outbox ever hashes the in-memory request value, this test catches it.
   it('SEC-E5: a lone surrogate in managementReference does not break the audit chain', async () => {
-    const t = await buildGamificationApp();
+    const t = await buildGamificationApp({ features: { phishing: true, continuousReview: false } });
     const emp = await createEmployee(creds);
     const { escalationId } = await t.g.escalations.recordCriticalEvent({
       userId: emp.id,
-      reason: 'gate_access_restricted',
+      reason: 'simulation_credentials_submitted',
       sourceRef: { type: 'gate_event', id: new Types.ObjectId().toHexString() },
       occurredAt: new Date(),
     });

@@ -210,6 +210,80 @@ describe('loadEnv', () => {
     );
   });
 
+  it('E4e: gate keys (GATE_MAX_ATTEMPTS 1..10, GATE_CLEARANCE_TTL 5m..24h, GATE_RESTORE_REQUIRES_ACK, ORG_TIMEZONE)', () => {
+    expect(toAppConfig(loadEnv(base())).gate).toEqual({
+      maxAttempts: 3,
+      clearanceTtlSeconds: 12 * 3600,
+      challengeTtlSeconds: 600,
+      restoreRequiresAck: true,
+      orgTimeZone: 'UTC',
+    });
+    const custom = toAppConfig(
+      loadEnv({
+        ...base(),
+        GATE_MAX_ATTEMPTS: '5',
+        GATE_CLEARANCE_TTL: '8h',
+        GATE_RESTORE_REQUIRES_ACK: 'false',
+        ORG_TIMEZONE: 'Africa/Casablanca',
+      }),
+    ).gate;
+    expect(custom).toEqual({
+      maxAttempts: 5,
+      clearanceTtlSeconds: 8 * 3600,
+      challengeTtlSeconds: 600,
+      restoreRequiresAck: false,
+      orgTimeZone: 'Africa/Casablanca',
+    });
+    for (const ok of ['1', '10']) {
+      expect(loadEnv({ ...base(), GATE_MAX_ATTEMPTS: ok }).GATE_MAX_ATTEMPTS).toBe(Number(ok));
+    }
+    for (const bad of ['0', '11', '1.5', 'x', '-1']) {
+      expect(() => loadEnv({ ...base(), GATE_MAX_ATTEMPTS: bad }), bad).toThrow(
+        /GATE_MAX_ATTEMPTS/,
+      );
+    }
+    for (const ok of ['5m', '24h', '1d']) {
+      expect(loadEnv({ ...base(), GATE_CLEARANCE_TTL: ok }).GATE_CLEARANCE_TTL).toBe(ok);
+    }
+    for (const bad of ['4m', '25h', '2d', '0s', '12', 'x']) {
+      expect(() => loadEnv({ ...base(), GATE_CLEARANCE_TTL: bad }), bad).toThrow(
+        /GATE_CLEARANCE_TTL/,
+      );
+    }
+    expect(() => loadEnv({ ...base(), GATE_RESTORE_REQUIRES_ACK: 'no' })).toThrow(
+      /GATE_RESTORE_REQUIRES_ACK/,
+    );
+    for (const bad of ['Mars/Olympus', 'GMT+99', '', 'x'.repeat(65)]) {
+      expect(() => loadEnv({ ...base(), ORG_TIMEZONE: bad }), bad).toThrow(/ORG_TIMEZONE/);
+    }
+  });
+
+  it('E4f: GATE_CHALLENGE_TTL (1m..60m, default 10m) and GATE_OFFLINE_REPORT_RATE_MAX (1..1000, default 10)', () => {
+    const dflt = toAppConfig(loadEnv(base()));
+    expect(dflt.gate.challengeTtlSeconds).toBe(600);
+    expect(dflt.rateLimit.gateReportMax).toBe(10);
+    expect(dflt.rateLimit.gateReportWindowMs).toBe(3_600_000);
+    for (const ok of ['1m', '10m', '60m', '1h']) {
+      expect(loadEnv({ ...base(), GATE_CHALLENGE_TTL: ok }).GATE_CHALLENGE_TTL).toBe(ok);
+    }
+    expect(
+      toAppConfig(loadEnv({ ...base(), GATE_CHALLENGE_TTL: '30m' })).gate.challengeTtlSeconds,
+    ).toBe(1800);
+    for (const bad of ['30s', '61m', '2h', '0m', '10', 'x']) {
+      expect(() => loadEnv({ ...base(), GATE_CHALLENGE_TTL: bad }), bad).toThrow(
+        /GATE_CHALLENGE_TTL/,
+      );
+    }
+    expect(
+      loadEnv({ ...base(), GATE_OFFLINE_REPORT_RATE_MAX: '1000' }).GATE_OFFLINE_REPORT_RATE_MAX,
+    ).toBe(1000);
+    for (const bad of ['0', '1001', '1.5', 'x']) {
+      expect(() => loadEnv({ ...base(), GATE_OFFLINE_REPORT_RATE_MAX: bad }), bad).toThrow(
+        /GATE_OFFLINE_REPORT_RATE_MAX/,
+      );
+    }
+  });
+
   it('E5: BCRYPT_COST below 12 or above 15 throws; 12 and 13 are accepted', () => {
     for (const bad of ['10', '11', '16']) {
       expect(() => loadEnv({ ...base(), BCRYPT_COST: bad })).toThrow(/BCRYPT_COST/);
