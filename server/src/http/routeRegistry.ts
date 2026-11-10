@@ -15,7 +15,7 @@ export const EMPLOYEE_ONLY: Access = { kind: 'role', roles: ['employee'] };
 
 export const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 export type HttpMethod = (typeof HTTP_METHODS)[number];
-export type LimiterName = 'login' | 'refresh' | 'sessionStart';
+export type LimiterName = 'login' | 'refresh' | 'sessionStart' | 'gateReport';
 
 export interface RouteContext<B = unknown, P = unknown, Q = unknown> {
   body: B;
@@ -61,7 +61,7 @@ const routeShapeSchema = z.object({
   method: z.enum(HTTP_METHODS),
   path: z.string().startsWith('/'),
   access: accessSchema,
-  limiter: z.enum(['login', 'refresh', 'sessionStart']).optional(),
+  limiter: z.enum(['login', 'refresh', 'sessionStart', 'gateReport']).optional(),
   allowWhileRestricted: z.literal(true).optional(),
   handler: z.custom((v) => typeof v === 'function', 'must be a function'),
 });

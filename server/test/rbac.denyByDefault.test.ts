@@ -80,6 +80,7 @@ describe('route table', () => {
         'GET /gate/status role:employee +allowWhileRestricted',
         'POST /gate/challenge role:employee +allowWhileRestricted',
         'POST /gate/attempts role:employee',
+        'POST /gate/offline-releases role:employee +allowWhileRestricted',
         'POST /admin/users/:userId/restore-access role:administrator',
       ].sort(),
     );

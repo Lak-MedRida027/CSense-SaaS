@@ -214,6 +214,7 @@ describe('loadEnv', () => {
     expect(toAppConfig(loadEnv(base())).gate).toEqual({
       maxAttempts: 3,
       clearanceTtlSeconds: 12 * 3600,
+      challengeTtlSeconds: 600,
       restoreRequiresAck: true,
       orgTimeZone: 'UTC',
     });
@@ -229,6 +230,7 @@ describe('loadEnv', () => {
     expect(custom).toEqual({
       maxAttempts: 5,
       clearanceTtlSeconds: 8 * 3600,
+      challengeTtlSeconds: 600,
       restoreRequiresAck: false,
       orgTimeZone: 'Africa/Casablanca',
     });
@@ -253,6 +255,32 @@ describe('loadEnv', () => {
     );
     for (const bad of ['Mars/Olympus', 'GMT+99', '', 'x'.repeat(65)]) {
       expect(() => loadEnv({ ...base(), ORG_TIMEZONE: bad }), bad).toThrow(/ORG_TIMEZONE/);
+    }
+  });
+
+  it('E4f: GATE_CHALLENGE_TTL (1m..60m, default 10m) and GATE_OFFLINE_REPORT_RATE_MAX (1..1000, default 10)', () => {
+    const dflt = toAppConfig(loadEnv(base()));
+    expect(dflt.gate.challengeTtlSeconds).toBe(600);
+    expect(dflt.rateLimit.gateReportMax).toBe(10);
+    expect(dflt.rateLimit.gateReportWindowMs).toBe(3_600_000);
+    for (const ok of ['1m', '10m', '60m', '1h']) {
+      expect(loadEnv({ ...base(), GATE_CHALLENGE_TTL: ok }).GATE_CHALLENGE_TTL).toBe(ok);
+    }
+    expect(
+      toAppConfig(loadEnv({ ...base(), GATE_CHALLENGE_TTL: '30m' })).gate.challengeTtlSeconds,
+    ).toBe(1800);
+    for (const bad of ['30s', '61m', '2h', '0m', '10', 'x']) {
+      expect(() => loadEnv({ ...base(), GATE_CHALLENGE_TTL: bad }), bad).toThrow(
+        /GATE_CHALLENGE_TTL/,
+      );
+    }
+    expect(
+      loadEnv({ ...base(), GATE_OFFLINE_REPORT_RATE_MAX: '1000' }).GATE_OFFLINE_REPORT_RATE_MAX,
+    ).toBe(1000);
+    for (const bad of ['0', '1001', '1.5', 'x']) {
+      expect(() => loadEnv({ ...base(), GATE_OFFLINE_REPORT_RATE_MAX: bad }), bad).toThrow(
+        /GATE_OFFLINE_REPORT_RATE_MAX/,
+      );
     }
   });
 

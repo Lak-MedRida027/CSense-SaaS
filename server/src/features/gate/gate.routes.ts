@@ -1,8 +1,10 @@
 import {
   gateAttemptRequestSchema,
+  gateOfflineReleaseRequestSchema,
   restoreAccessParamsSchema,
   restoreAccessRequestSchema,
   type GateAttemptResultDTO,
+  type GateOfflineReleaseResultDTO,
   type GateStatusDTO,
   type RestoreAccessDTO,
 } from '@csense/shared';
@@ -48,6 +50,23 @@ export function gateRoutes(deps: { gate: GateService; restore: RestoreService })
           ctx.body,
         );
         res.status(201).json(result);
+      },
+    }),
+    defineRoute({
+      method: 'post',
+      path: '/gate/offline-releases',
+      access: EMPLOYEE_ONLY,
+      // A restricted employee who got in offline must still be able to report it.
+      allowWhileRestricted: true,
+      limiter: 'gateReport',
+      schemas: { body: gateOfflineReleaseRequestSchema },
+      handler: async (ctx, _req, res): Promise<void> => {
+        const { result, created } = await deps.gate.reportOfflineRelease(
+          requireAuth(ctx).userId,
+          ctx.body,
+          { ip: ctx.ip, userAgent: ctx.userAgent, requestId: ctx.requestId },
+        );
+        res.status(created ? 201 : 200).json(result satisfies GateOfflineReleaseResultDTO);
       },
     }),
     defineRoute({

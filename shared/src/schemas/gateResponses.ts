@@ -59,3 +59,15 @@ export type GateChallengeDTO = z.infer<typeof gateChallengeSchema>;
 export type GateStatusDTO = z.infer<typeof gateStatusSchema>;
 export type GateAttemptResultDTO = z.infer<typeof gateAttemptResultSchema>;
 export type RestoreAccessDTO = z.infer<typeof restoreAccessSchema>;
+
+export const gateOfflineReleaseResultSchema = z
+  .object({
+    /** Always true: the report is stored. */
+    recorded: z.literal(true),
+    /** True when the same report (user and releasedAt) had been stored before. */
+    duplicate: z.boolean(),
+    /** True when the employee was restricted at the time: the security team was told as well. */
+    escalated: z.boolean(),
+  })
+  .strict();
+export type GateOfflineReleaseResultDTO = z.infer<typeof gateOfflineReleaseResultSchema>;

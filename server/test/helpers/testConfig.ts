@@ -38,6 +38,7 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
     gate: {
       maxAttempts: 3,
       clearanceTtlSeconds: 12 * 3600,
+      challengeTtlSeconds: 600,
       restoreRequiresAck: true,
       orgTimeZone: 'UTC',
       ...gate,
@@ -68,6 +69,8 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
       refreshMaxPerIp: 100_000,
       sessionStartMax: 20,
       sessionStartWindowMs: 600_000,
+      gateReportMax: 10,
+      gateReportWindowMs: 3_600_000,
       ...rateLimit,
     },
   };

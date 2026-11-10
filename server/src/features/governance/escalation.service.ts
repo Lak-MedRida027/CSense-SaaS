@@ -165,6 +165,12 @@ export const SYSTEM_EVENTS_MAX = ESCALATION_EVENTS_MAX - ESCALATION_ADMIN_RESERV
 export interface EscalationService {
   openForRiskHigh(input: RiskHighInput): Promise<{ escalationId: string; outcome: OpenOutcome }>;
   recordCriticalEvent(input: CriticalEventInput): Promise<{ escalationId: string }>;
+  /**
+   * Append a system "retriggered" event to an escalation that is still active (used when a
+   * restricted employee got in offline). Idempotent per `refId`; past the system-event budget it
+   * only moves the counters. Returns false when the escalation is not active.
+   */
+  recordRetrigger(escalationId: string, refId: string): Promise<boolean>;
   /** Open (or retrigger) an escalation for assessments with repeated cooldowns in the window. */
   evaluateCooldowns(userId: string): Promise<string[]>;
   /**
@@ -381,6 +387,60 @@ export function createEscalationService(deps: EscalationServiceDeps): Escalation
         retriggerEventId: null,
       });
       return { escalationId };
+    },
+
+    async recordRetrigger(escalationId, refId) {
+      const retrigger = new Types.ObjectId(refId);
+      const active = await Escalation.findOne({
+        _id: new Types.ObjectId(escalationId),
+        active: true,
+      })
+        .select('_id reason severity reviewTier')
+        .lean<
+          Pick<EscalationRow, 'reason' | 'severity' | 'reviewTier'> & { _id: Types.ObjectId }
+        >();
+      if (!active) return false;
+      const at = clock();
+      const pushed = await Escalation.updateOne(
+        {
+          _id: active._id,
+          'events.eventId': trusted({ $ne: retrigger }),
+          [`events.${String(SYSTEM_EVENTS_MAX - 1)}`]: trusted({ $exists: false }),
+        },
+        {
+          $push: {
+            events: {
+              eventId: retrigger,
+              type: 'retriggered',
+              at,
+              refId: retrigger,
+              audited: false,
+            },
+          },
+          $inc: { version: 1 },
+        },
+      );
+      let counted = false;
+      if (pushed.modifiedCount === 0) {
+        const folded = await Escalation.updateOne(
+          {
+            _id: active._id,
+            lastRetriggerRef: trusted({ $ne: retrigger }),
+            'events.eventId': trusted({ $ne: retrigger }),
+            [`events.${String(SYSTEM_EVENTS_MAX - 1)}`]: trusted({ $exists: true }),
+          },
+          {
+            $inc: { retriggerCount: 1 },
+            $set: { lastRetriggeredAt: at, lastRetriggerRef: retrigger },
+          },
+        );
+        counted = folded.modifiedCount === 1;
+      }
+      if (pushed.modifiedCount === 1 || counted) {
+        await deps.notifier.escalationRetriggered(notice({ ...active, id: escalationId }));
+      }
+      await service.flushAudit(escalationId);
+      return true;
     },
 
     async evaluateCooldowns(userId) {

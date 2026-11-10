@@ -84,7 +84,7 @@ describe('gate restriction', () => {
     expect(result2.status.restricted?.referenceId).toMatch(/^GATE-20260311-/);
   });
 
-  it('GT7: every employee route outside the allowlist answers 403 ACCESS_RESTRICTED; the four allowed routes work', async () => {
+  it('GT7: every employee route outside the allowlist answers 403 ACCESS_RESTRICTED; the five allowed routes work', async () => {
     const e = await gateEmployee(t.app, creds);
     await failGate(t.app, e);
 
@@ -108,7 +108,13 @@ describe('gate restriction', () => {
       allowed.push(`${r.method.toUpperCase()} ${r.path}`);
     }
     expect(allowed.sort()).toEqual(
-      ['GET /auth/me', 'GET /config/features', 'GET /gate/status', 'POST /gate/challenge'].sort(),
+      [
+        'GET /auth/me',
+        'GET /config/features',
+        'GET /gate/status',
+        'POST /gate/challenge',
+        'POST /gate/offline-releases',
+      ].sort(),
     );
     // And the declared allowlist is exactly that set.
     expect(

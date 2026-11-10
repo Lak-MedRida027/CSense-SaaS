@@ -8,13 +8,15 @@ import { Employee, Escalation, GateRun } from '../../models/index.js';
 import { audit, type AuditContext } from '../audit/audit.service.js';
 import type { EscalationService } from '../governance/escalation.service.js';
 import type { GateRunRow } from './gate.mapper.js';
-import { clearRestrictionFlag } from './gate.restriction.js';
+import { clearRestrictionFlag, restoreAuditKey } from './gate.restriction.js';
+import type { MarkerService } from '../maintenance/markers.js';
 
 export interface RestoreServiceDeps {
   clock: () => Date;
   logger: Logger;
   gate: AppConfig['gate'];
   escalations: Pick<EscalationService, 'transition' | 'recordCriticalEvent'>;
+  markers: MarkerService;
 }
 
 export interface RestoreService {
@@ -87,13 +89,13 @@ export function createRestoreService(deps: RestoreServiceDeps): RestoreService {
           deps.logger.error({ err, runId }, 'Gate restore rollback failed');
         });
       };
+      const escalationHex = escalationId.toHexString();
 
+      // 1. The audit entry first (keyed by run and claim time). If it cannot be written the restore
+      //    is rolled back, and the escalation records that nothing changed (P5-L4). If the rollback
+      //    itself fails, the flag is still set, so access stays blocked, and repairGate writes the
+      //    missing entry (actor = restoredBy) before it ever clears the flag.
       try {
-        await deps.escalations.transition(
-          escalationId.toHexString(),
-          { action: 'note', note },
-          { actorId, ...ctx },
-        );
         await audit.record({
           action: 'gate.access_restored',
           outcome: 'success',
@@ -101,20 +103,52 @@ export function createRestoreService(deps: RestoreServiceDeps): RestoreService {
           actor: { id: actorId, role: 'administrator' },
           target: { type: 'user', id: owner },
           ctx,
-          idempotencyKey: `gate:restore:${runId}`,
+          idempotencyKey: restoreAuditKey(runId, now),
           metadata: {
             runId,
-            escalationId: escalationId.toHexString(),
+            escalationId: escalationHex,
             noteSha256: sha256(note),
             noteLength: note.length,
           },
         });
       } catch (err) {
         await rollback();
+        await deps.escalations
+          .transition(
+            escalationHex,
+            {
+              action: 'note',
+              note: 'Restore rolled back: the restore attempt could not be recorded, access is still restricted.',
+            },
+            { actorId, ...ctx },
+          )
+          .catch((noteErr: unknown) => {
+            deps.logger.error({ err: noteErr, runId }, 'Gate restore rollback note failed');
+          });
         throw err;
       }
 
-      await clearRestrictionFlag(userId, runId);
+      // 2. Lift the access-gate cache. A failure leaves a marker (and the sweeper scans for it).
+      let flagError: Error | null = null;
+      try {
+        await clearRestrictionFlag(userId, runId);
+      } catch (err) {
+        flagError = err instanceof Error ? err : new Error(String(err));
+        deps.logger.error({ err, runId }, 'Gate restore could not clear the user flag');
+        await deps.markers.mark(userId, 'gate');
+      }
+
+      // 3. The administrator note goes on the escalation only after the restore succeeded.
+      try {
+        await deps.escalations.transition(
+          escalationHex,
+          { action: 'note', note },
+          { actorId, ...ctx },
+        );
+      } catch (err) {
+        deps.logger.error({ err, runId }, 'Gate restore note could not be appended');
+      }
+      if (flagError !== null) throw flagError;
       return {
         userId,
         runId,

@@ -22,6 +22,8 @@ export interface AppConfig {
     /** Wrong answers allowed per run before access is restricted. */
     maxAttempts: number;
     clearanceTtlSeconds: number;
+    /** An unanswered challenge expires after this many seconds. */
+    challengeTtlSeconds: number;
     restoreRequiresAck: boolean;
     /** IANA zone for gate XP days and reference ids. */
     orgTimeZone: string;
@@ -60,6 +62,9 @@ export interface AppConfig {
     /** Session starts per employee per window (quiz and final test together). */
     sessionStartMax: number;
     sessionStartWindowMs: number;
+    /** Offline-release reports per employee per window (one hour). */
+    gateReportMax: number;
+    gateReportWindowMs: number;
   };
 }
 
@@ -78,6 +83,7 @@ export function toAppConfig(env: Env): AppConfig {
     gate: {
       maxAttempts: env.GATE_MAX_ATTEMPTS,
       clearanceTtlSeconds: parseDuration(env.GATE_CLEARANCE_TTL),
+      challengeTtlSeconds: parseDuration(env.GATE_CHALLENGE_TTL),
       restoreRequiresAck: env.GATE_RESTORE_REQUIRES_ACK,
       orgTimeZone: env.ORG_TIMEZONE,
     },
@@ -111,6 +117,8 @@ export function toAppConfig(env: Env): AppConfig {
       refreshMaxPerIp: env.AUTH_REFRESH_MAX_PER_IP,
       sessionStartMax: env.SESSION_START_RATE_MAX,
       sessionStartWindowMs: env.SESSION_START_RATE_WINDOW_MS,
+      gateReportMax: env.GATE_OFFLINE_REPORT_RATE_MAX,
+      gateReportWindowMs: 3_600_000,
     },
   };
 }

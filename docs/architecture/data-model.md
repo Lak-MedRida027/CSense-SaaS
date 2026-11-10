@@ -250,6 +250,8 @@ the key. Test cleanup uses driver-level `deleteMany`.
 
 **`users` (Employee), new field.** `gateRestriction: { restrictedAt, runId } | null`: a cache of "the latest restricted run is not restored", read by the access gate on every request and repaired by reconcile from `gateruns`.
 
+The Employee schema also has a partial index on `gateRestriction.runId` for the sweeper scan of flags that outlived their restore.
+
 Start-up verification (`db/learningIndexes.ts`) now also checks the two unique gate indexes; `/health/ready` reports not-ready without them.
 
 ## Planned additions (not in the diagram; built in the owning phase)

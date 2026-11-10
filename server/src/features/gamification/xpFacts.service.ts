@@ -47,7 +47,7 @@ export async function loadXpFacts(userId: string): Promise<XpFacts> {
     // Passed gate runs earn the daily gate XP (ADR 0017). Facts only grow: runs are never deleted.
     GateRun.find({ userId: owner, status: 'passed' })
       .select('firstAnswerCorrect closedAt')
-      .sort({ closedAt: 1, _id: 1 })
+      .sort({ closedAt: -1, _id: -1 })
       .limit(MAX_ATTEMPTS)
       .lean<{ _id: Types.ObjectId; firstAnswerCorrect?: boolean | null; closedAt: Date }[]>(),
   ]);

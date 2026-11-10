@@ -32,3 +32,16 @@ export const GATE_RESTORE_NOTE_MAX = 2000;
 
 /** XP source key prefix: one entry per organisation-local day, `gate:<YYYY-MM-DD>`. */
 export const GATE_XP_KEY_PREFIX = 'gate:';
+
+/** Challenge lifetime (GATE_CHALLENGE_TTL, ADR 0015): an unanswered challenge expires after this. */
+export const GATE_CHALLENGE_TTL_MIN_SECONDS = 60;
+export const GATE_CHALLENGE_TTL_MAX_SECONDS = 3600;
+export const GATE_CHALLENGE_TTL_DEFAULT = '10m';
+
+/** Offline-release reports (POST /gate/offline-releases). */
+export const GATE_OFFLINE_REASONS = ['api_unreachable'] as const;
+export type GateOfflineReason = (typeof GATE_OFFLINE_REASONS)[number];
+/** A report older than this is refused; one dated in the future (beyond clock skew) too. */
+export const GATE_OFFLINE_MAX_AGE_DAYS = 30;
+export const GATE_OFFLINE_FUTURE_SKEW_SECONDS = 300;
+export const GATE_OFFLINE_DURATION_MAX_SECONDS = GATE_OFFLINE_MAX_AGE_DAYS * 86_400;

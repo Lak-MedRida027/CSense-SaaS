@@ -1,0 +1,13 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "rootDir": ".",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo.e2e"
+  },
+  "include": ["src/testing", "test/e2eServer.test.ts"],
+  "references": [{ "path": "./tsconfig.json" }, { "path": "../shared" }]
+}

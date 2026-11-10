@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -b",
+    "build:e2e": "tsc -b tsconfig.e2e.json",
     "start": "node dist/src/index.js",
     "bootstrap:admin": "node dist/src/scripts/bootstrapAdmin.js",
     "bootstrap:admin:dev": "tsx src/scripts/bootstrapAdmin.ts",

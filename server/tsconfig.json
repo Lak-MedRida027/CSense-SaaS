@@ -9,5 +9,6 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo"
   },
   "include": ["src", "test"],
+  "exclude": ["src/testing", "test/e2eServer.test.ts"],
   "references": [{ "path": "../shared" }]
 }

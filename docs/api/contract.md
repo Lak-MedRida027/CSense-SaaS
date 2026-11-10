@@ -5,7 +5,7 @@ Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs
 **Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
 routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
 `GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only); Phase 4 the
-8 routes for XP, badges, risk profiles, escalations and the audit log; Phase 5 the 4 gate routes below. These 35 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+8 routes for XP, badges, risk profiles, escalations and the audit log; Phase 5 the 5 gate routes below. These 36 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
@@ -107,6 +107,7 @@ The gate is **pre-access, post-authentication** (U15): the desktop window locks 
 | GET | `/gate/status` | employee, allowed while restricted | none | 200 `GateStatusDTO` (pure read, never creates a run) | 401, 403 (administrator) |
 | POST | `/gate/challenge` | employee, allowed while restricted | none | 200 `GateStatusDTO`. Get-or-create the open run's current challenge; idempotent (same `challengeId` until answered); opens nothing while `granted` or `restricted`. | 503 `GATE_UNAVAILABLE` |
 | POST | `/gate/attempts` | employee | `{ challengeId, selectedIndex }` (strict) | 201 `GateAttemptResultDTO` | 400 (shape; index out of range for the served question, nothing consumed), 409 `GATE_CHALLENGE_STALE`, 403 `ACCESS_RESTRICTED` |
+| POST | `/gate/offline-releases` | employee, allowed while restricted | `{ releasedAt, reason, durationSeconds? }` (strict) | 201 `GateOfflineReleaseResultDTO` (200 with `duplicate: true` on a replay) | 400 (`releasedAt` in the future or older than 30 days, unknown field or reason), 429 |
 | POST | `/admin/users/:userId/restore-access` | admin | `{ note }` (1..2000, no control characters) | 200 `RestoreAccessDTO` | 400, 404 (unknown user or not an employee), 409 `NOT_RESTRICTED`, 409 `ESCALATION_NOT_ACKNOWLEDGED` |
 
 `POST /gate/challenge` is new in Phase 5 (not in the earlier reserved list): it keeps `GET /gate/status` free of side effects.
@@ -121,10 +122,15 @@ GateStatusDTO = {
 }
 GateAttemptResultDTO = { correct: boolean, explanation: string, xpEarned: number, status: GateStatusDTO }
 RestoreAccessDTO = { userId: string, runId: string, escalationId: string, restoredAt: string }
+GateOfflineReleaseRequest = { releasedAt: ISO datetime, reason: 'api_unreachable', durationSeconds?: int }
+GateOfflineReleaseResultDTO = { recorded: true, duplicate: boolean, escalated: boolean }
 ```
 Schemas (strict, frozen in Step 0): `shared/src/schemas/gate.ts` (requests, authoring) and `shared/src/schemas/gateResponses.ts` (`gateStatusSchema`, `gateAttemptResultSchema`, `restoreAccessSchema`). No response ever contains the correct option, before or after an answer; the `explanation` teaches the concept without naming it. `referenceId` is `GATE-<YYYYMMDD in ORG_TIMEZONE>-<last 6 hex of the run id, upper case>`; administrators find the run through `escalation.sourceRef.id = runId` (`GET /admin/escalations?reason=gate_access_restricted&userId=...`).
 
 Semantics:
+- **Challenge lifetime.** An unanswered challenge expires after `GATE_CHALLENGE_TTL` (default 10m, 1m..60m). Answering an expired one is 409 `GATE_CHALLENGE_STALE` and consumes nothing; `GET /gate/status` then reports `required` and `POST /gate/challenge` serves a new question on the same run (attempts already used stay used).
+- **Grading always persists.** A wrong answer is always consumed and recorded. If no next question can be drawn (content deactivated), the graded 201 answers `state: 'required'` with the attempts left, and the NEXT `POST /gate/challenge` is the 503 `GATE_UNAVAILABLE`.
+- **Offline releases.** When the desktop released the workstation offline (D5-12), it reports it with `POST /gate/offline-releases` as soon as the API answers (also while restricted). The server audits a warning `gate.offline_release` (idempotent per user and `releasedAt`; a future time beyond 5 minutes of clock skew, or older than 30 days, is a 400; limited per employee per hour by `GATE_OFFLINE_REPORT_RATE_MAX`). If the employee is restricted at that moment, a `retriggered` event is appended to their active `gate_access_restricted` escalation (opened first if missing) and the security team is notified: `escalated: true`.
 - **States.** `required`: no open run and no valid clearance (a challenge is not issued yet; call `POST /gate/challenge`). `challenge`: an open run with a current question. `granted`: a pass with `clearedUntil` in the future. `restricted`: the latest run is restricted and not restored.
 - **Runs and attempts.** One open run per employee; it survives restarts, sign-outs and other workstations until it is passed or restricted. `GATE_MAX_ATTEMPTS` (default 3) attempts per run; every attempt serves a different question. The wrong answer that uses the last attempt restricts the run.
 - **Clearance.** A pass sets `clearedUntil = now + GATE_CLEARANCE_TTL` (default 12h). The server does **not** require a clearance on learning routes (D5-8); the workstation cover is the client's job.

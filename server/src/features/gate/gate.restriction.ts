@@ -83,6 +83,16 @@ export async function setRestrictionFlag(target: RestrictionTarget): Promise<voi
   } catch {
     await write();
   }
+  // A restore may have completed between the check above and the write (P5-L5). Re-read and
+  // compensate, so a restored employee is never left behind a stale cache entry.
+  if ((await GateRun.exists({ _id: run, restoredAt: null })) === null) {
+    await clearRestrictionFlag(target.userId, target.runId);
+  }
+}
+
+/** Idempotency key of the gate.access_restored entry of one restore (run and claim time). */
+export function restoreAuditKey(runId: string, restoredAt: Date): string {
+  return `gate:restore:${runId}:${String(restoredAt.getTime())}`;
 }
 
 /** Clear the flag, but only the one that belongs to this run. */

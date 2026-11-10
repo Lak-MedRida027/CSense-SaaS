@@ -94,6 +94,7 @@ export function allRoutes({
         logger,
         gate: config.gate,
         escalations: gamification.escalations,
+        markers: gamification.markers,
       }),
     }),
     ...riskRoutes(),

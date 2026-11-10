@@ -89,6 +89,12 @@ const employeeSchema = new Schema(
   { strict: 'throw' },
 );
 
+// Sweeper scan for flags that outlived their restore (P5-L3).
+employeeSchema.index(
+  { 'gateRestriction.runId': 1 },
+  { partialFilterExpression: { 'gateRestriction.runId': { $type: 'objectId' } } },
+);
+
 export const Employee = User.discriminator('Employee', employeeSchema, 'employee');
 
 // Administrator adds no attributes in the Class UML.

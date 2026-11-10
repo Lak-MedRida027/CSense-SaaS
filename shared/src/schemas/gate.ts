@@ -1,5 +1,11 @@
 import { z } from 'zod';
-import { GATE_OPTION_MAX, GATE_OPTION_MIN, GATE_RESTORE_NOTE_MAX } from '../constants/gate.js';
+import {
+  GATE_OFFLINE_DURATION_MAX_SECONDS,
+  GATE_OFFLINE_REASONS,
+  GATE_OPTION_MAX,
+  GATE_OPTION_MIN,
+  GATE_RESTORE_NOTE_MAX,
+} from '../constants/gate.js';
 import { contentTokens } from '../learning/authoringCheck.js';
 import { objectIdSchema } from './common.js';
 import { isCleanText } from './text.js';
@@ -100,3 +106,16 @@ export const gateQuestionAuthoringSchema = z
     }
   });
 export type GateQuestionAuthoring = z.infer<typeof gateQuestionAuthoringSchema>;
+
+/**
+ * POST /gate/offline-releases: the desktop reports that it released the workstation while the API
+ * was unreachable (D5-12). Strict; the server checks the time window.
+ */
+export const gateOfflineReleaseRequestSchema = z
+  .object({
+    releasedAt: z.iso.datetime(),
+    reason: z.enum(GATE_OFFLINE_REASONS),
+    durationSeconds: z.number().int().min(0).max(GATE_OFFLINE_DURATION_MAX_SECONDS).optional(),
+  })
+  .strict();
+export type GateOfflineReleaseRequest = z.infer<typeof gateOfflineReleaseRequestSchema>;
