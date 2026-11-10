@@ -6,7 +6,11 @@ import {
   ModulePlayerScreen,
   OnboardingScreen,
   QuizScreen,
+  GateBootScreen,
+  GateMisconfiguredScreen,
+  GateOfflineScreen,
   SecurityGateScreen,
+  TrainingHomeScreen,
 } from '../../screens';
 import * as admin from '../../screens/AdminDashboard/AdminDashboard.fixtures';
 import * as employee from '../../screens/EmployeeDashboard/EmployeeDashboard.fixtures';
@@ -14,7 +18,9 @@ import * as login from '../../screens/Login/Login.fixtures';
 import * as player from '../../screens/ModulePlayer/ModulePlayer.fixtures';
 import * as onboarding from '../../screens/Onboarding/Onboarding.fixtures';
 import * as quiz from '../../screens/Quiz/Quiz.fixtures';
+import * as gateStates from '../../screens/SecurityGate/GateStates.fixtures';
 import * as gate from '../../screens/SecurityGate/SecurityGate.fixtures';
+import * as home from '../../screens/TrainingHome/TrainingHome.fixtures';
 
 export interface ScreenVariant {
   id: string;
@@ -53,6 +59,52 @@ export const SCREENS: readonly ScreenEntry[] = [
         id: 'restricted',
         label: 'Restricted',
         render: () => <SecurityGateScreen {...gate.securityGateRestrictedFixture} />,
+      },
+      {
+        id: 'offline',
+        label: 'Offline, retrying',
+        render: () => <GateOfflineScreen {...gateStates.gateOfflineFixture} />,
+      },
+      {
+        id: 'offline-continue',
+        label: 'Offline, grace elapsed',
+        render: () => <GateOfflineScreen {...gateStates.gateOfflineGraceElapsedFixture} />,
+      },
+      {
+        id: 'misconfigured',
+        label: 'Misconfigured',
+        render: () => <GateMisconfiguredScreen appVersion="0.1.0" />,
+      },
+      {
+        id: 'checking',
+        label: 'Checking access',
+        render: () => <GateBootScreen appVersion="0.1.0" />,
+      },
+    ],
+  },
+  {
+    id: 'training-home',
+    label: 'Training home (Phase 5, temporary)',
+    variants: [
+      {
+        id: 'default',
+        label: 'Modules',
+        render: () => <TrainingHomeScreen {...home.trainingHomeFixture} />,
+      },
+      {
+        id: 'offline',
+        label: 'Released offline',
+        render: () => <TrainingHomeScreen {...home.trainingHomeOfflineFixture} />,
+      },
+      {
+        id: 'error',
+        label: 'Error',
+        render: () => <TrainingHomeScreen {...home.trainingHomeErrorFixture} />,
+      },
+      {
+        id: 'admin',
+        label: 'Administrator',
+        render: () => <TrainingHomeScreen {...home.trainingHomeAdminFixture} />,
       },
     ],
   },
@@ -110,6 +162,16 @@ export const SCREENS: readonly ScreenEntry[] = [
         id: 'active',
         label: 'Lockdown active',
         render: () => <QuizScreen {...quiz.quizActiveFixture} />,
+      },
+      {
+        id: 'focus-warning',
+        label: 'Lockdown active, focus-loss warning',
+        render: () => (
+          <QuizScreen
+            {...quiz.quizActiveFixture}
+            lockdownWarning="You left secure mode. Leaving 2 more times ends this attempt."
+          />
+        ),
       },
       {
         id: 'confirm',

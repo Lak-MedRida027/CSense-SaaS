@@ -42,7 +42,7 @@ export function createGamificationServices(deps: GamificationDeps): Gamification
   const { config, clock, logger } = deps;
   const markers = createMarkerService({ logger });
   const notifier = safeNotifier(deps.notifier ?? createLogNotifier(logger), logger);
-  const xp = createXpService();
+  const xp = createXpService({ timeZone: config.gate.orgTimeZone });
   const badges = createBadgesService({ logger });
   const escalations = createEscalationService({
     clock,
@@ -66,6 +66,7 @@ export function createGamificationServices(deps: GamificationDeps): Gamification
     risk,
     escalations,
     phishingEnabled: config.features.phishing,
+    orgTimeZone: config.gate.orgTimeZone,
   });
   const sweeper = createSweeper({ logger, clock, reconcile, escalations });
   const hooks = createLearningEffects({ xp, badges, risk, markers, logger });

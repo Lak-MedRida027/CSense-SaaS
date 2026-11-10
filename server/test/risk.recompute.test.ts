@@ -1,6 +1,6 @@
 import { Types } from 'mongoose';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { computeRiskProfile } from '@csense/shared';
+import { RISK_MODEL_VERSION, computeRiskProfile } from '@csense/shared';
 import { createGamificationServices } from '../src/features/gamification/services.js';
 import { loadRiskFacts } from '../src/features/risk/riskFacts.service.js';
 import { RiskAssessment, RiskProfile } from '../src/models/index.js';
@@ -48,7 +48,7 @@ describe('risk recomputation', () => {
         engagementScore: pure.scores.engagement,
         compositeScore: pure.compositeScore,
         riskLevel: pure.riskLevel,
-        modelVersion: 1,
+        modelVersion: RISK_MODEL_VERSION,
       });
     }
     // Three modules passed first try: Knowledge 0, Behavioural 0, Engagement 0.

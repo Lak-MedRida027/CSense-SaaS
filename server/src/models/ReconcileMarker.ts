@@ -1,7 +1,7 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
 import { baseSchemaOptions, intValidator } from './schemaOptions.js';
 
-export const RECONCILE_REASONS = ['risk', 'xp', 'badge', 'escalation', 'audit'] as const;
+export const RECONCILE_REASONS = ['risk', 'xp', 'badge', 'escalation', 'audit', 'gate'] as const;
 
 /**
  * "This employee needs a reconcile": left by a failed hook or audit write, claimed and deleted by

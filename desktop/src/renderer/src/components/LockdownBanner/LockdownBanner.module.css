@@ -41,3 +41,10 @@
 .exit {
   flex: none;
 }
+
+.warning {
+  margin-top: var(--cs-space-1);
+  font-size: var(--cs-font-size-sm);
+  font-weight: var(--cs-font-weight-semibold);
+  color: var(--cs-color-text-primary);
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>CSense</title>
+    <style>
+      html,
+      body {
+        height: 100%;
+        margin: 0;
+        cursor: default;
+        user-select: none;
+      }
+      body {
+        display: grid;
+        place-items: center;
+        font-family: system-ui, sans-serif;
+        font-size: 1.25rem;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Static cover for secondary displays while the workstation is locked. No script, no preload. -->
+    <p>CSense is locked. Continue on the main display.</p>
+  </body>
+</html>

@@ -10,7 +10,10 @@ export const testChainSecret = randomSecret();
 
 export const silentLogger = pino({ level: 'silent' });
 
-type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit' | 'learning' | 'governance'>> & {
+type ConfigOverrides = Partial<
+  Omit<AppConfig, 'rateLimit' | 'learning' | 'governance' | 'gate'>
+> & {
+  gate?: Partial<AppConfig['gate']>;
   governance?: Partial<AppConfig['governance']>;
   rateLimit?: Partial<AppConfig['rateLimit']>;
   learning?: Partial<AppConfig['learning']>;
@@ -18,7 +21,7 @@ type ConfigOverrides = Partial<Omit<AppConfig, 'rateLimit' | 'learning' | 'gover
 
 /** AppConfig with random secrets and limits high enough not to interfere, unless overridden. */
 export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
-  const { rateLimit, learning, governance, ...rest } = overrides;
+  const { rateLimit, learning, governance, gate, ...rest } = overrides;
   return {
     jsonBodyLimit: '100kb',
     jwtAccessSecret: randomSecret(),
@@ -31,6 +34,14 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
       disengagedAfterDays: 14,
       requireSecondAdmin: true,
       ...governance,
+    },
+    gate: {
+      maxAttempts: 3,
+      clearanceTtlSeconds: 12 * 3600,
+      challengeTtlSeconds: 600,
+      restoreRequiresAck: true,
+      orgTimeZone: 'UTC',
+      ...gate,
     },
     accessTtlSeconds: 900,
     refreshTtlSeconds: 7 * 86_400,
@@ -58,6 +69,8 @@ export function testConfig(overrides: ConfigOverrides = {}): AppConfig {
       refreshMaxPerIp: 100_000,
       sessionStartMax: 20,
       sessionStartWindowMs: 600_000,
+      gateReportMax: 10,
+      gateReportWindowMs: 3_600_000,
       ...rateLimit,
     },
   };

@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { Alert } from '../../components/Alert';
 import { AttemptsIndicator } from '../../components/AttemptsIndicator';
 import { Button } from '../../components/Button';
 import { FeedbackPanel } from '../../components/FeedbackPanel';
@@ -22,16 +23,20 @@ export function SecurityGateScreen({
   attemptsRemaining,
   maxAttempts,
   feedback,
+  errorMessage,
   submitting = false,
   onSubmitGateAnswer,
   onContinue,
   autoContinueMs,
   restricted,
+  onSignOut,
   appVersion,
   helpText = 'Need help? Contact your security team.',
 }: SecurityGateScreenProps) {
   const name = useId();
-  const [selected, setSelected] = useState<string | null>(null);
+  // A new question never inherits the previous selection: the choice is keyed to its challenge.
+  const [choice, setChoice] = useState<{ challengeId: string; optionId: string } | null>(null);
+  const selected = choice?.challengeId === challenge.id ? choice.optionId : null;
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   // Move focus to the new state's heading so screen readers hear the outcome.
@@ -87,11 +92,14 @@ export function SecurityGateScreen({
                       letter={LETTERS[i] ?? String(i + 1)}
                       label={o.text}
                       checked={selected === o.id}
-                      onSelect={setSelected}
+                      onSelect={(optionId) => {
+                        setChoice({ challengeId: challenge.id, optionId });
+                      }}
                     />
                   ))}
                 </div>
               </fieldset>
+              {errorMessage && <Alert tone="critical" title={errorMessage} />}
               {feedback && !feedback.correct && (
                 <FeedbackPanel
                   correct={false}
@@ -106,6 +114,11 @@ export function SecurityGateScreen({
                 </Button>
               </div>
             </form>
+            {onSignOut && (
+              <Button variant="ghost" size="sm" onClick={onSignOut} className={styles.signOut}>
+                Sign out
+              </Button>
+            )}
           </section>
         )}
 
@@ -144,6 +157,11 @@ export function SecurityGateScreen({
             {restricted?.onContactSecurityTeam && (
               <Button variant="secondary" onClick={restricted.onContactSecurityTeam}>
                 Contact security team
+              </Button>
+            )}
+            {onSignOut && (
+              <Button variant="ghost" size="sm" onClick={onSignOut}>
+                Sign out
               </Button>
             )}
           </section>

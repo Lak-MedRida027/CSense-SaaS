@@ -1,9 +1,11 @@
 import {
+  BEHAVIOURAL_GROUP_WEIGHTS,
   CONDUCT_COOLDOWN_CAP,
   CONDUCT_COOLDOWN_POINTS,
   CONDUCT_RETRY_ALLOWANCE,
 } from '../constants/risk.js';
 import type { AttemptEndReason } from '../constants/learning.js';
+import { gateScore, type GateRunFact } from './gate.js';
 import { roundHalfUp } from './math.js';
 
 export interface ConductAttempt {
@@ -57,7 +59,7 @@ export function conductScore(attempts: readonly ConductAttempt[]): number | null
 /**
  * Model v1: Behavioural is the conduct score plus a penalty for assessment cooldowns (three failed
  * attempts in a row at one assessment): 25 points each, at most two counted, capped at 100.
- * Phase 5 blends the gate group in (model v2).
+ * Model v2 blends the gate group in (behaviouralScoreV2).
  */
 export function behaviouralScore(
   attempts: readonly ConductAttempt[],
@@ -67,4 +69,25 @@ export function behaviouralScore(
   if (conduct === null) return null;
   const penalty = CONDUCT_COOLDOWN_POINTS * Math.min(Math.max(0, cooldowns), CONDUCT_COOLDOWN_CAP);
   return Math.min(100, conduct + penalty);
+}
+
+/**
+ * Model v2 (ADR 0017): Behavioural blends the gate score and the v1 assessment conduct,
+ * 70 / 30 (BEHAVIOURAL_GROUP_WEIGHTS), rounded half up. When only one of the two exists that one
+ * is used as is; when neither exists the dimension is not assessed (null).
+ */
+export function behaviouralScoreV2(
+  attempts: readonly ConductAttempt[],
+  cooldowns: number,
+  gateRuns: readonly GateRunFact[],
+): number | null {
+  const v1 = behaviouralScore(attempts, cooldowns);
+  const gate = gateScore(gateRuns);
+  if (v1 !== null && gate !== null) {
+    return roundHalfUp(
+      BEHAVIOURAL_GROUP_WEIGHTS.gate * gate + BEHAVIOURAL_GROUP_WEIGHTS.conduct * v1,
+      BEHAVIOURAL_GROUP_WEIGHTS.gate + BEHAVIOURAL_GROUP_WEIGHTS.conduct,
+    );
+  }
+  return gate ?? v1;
 }

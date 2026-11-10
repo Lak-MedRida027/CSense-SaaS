@@ -77,3 +77,26 @@ export const assessmentCooldown = (retryAt: Date, now: Date): HttpError =>
     { retryAt: retryAt.toISOString() },
     { 'Retry-After': String(Math.max(1, Math.ceil((retryAt.getTime() - now.getTime()) / 1000))) },
   );
+
+export const accessRestricted = (): HttpError =>
+  new HttpError(
+    403,
+    'ACCESS_RESTRICTED',
+    'Your access is restricted. Contact the security team to restore it.',
+  );
+
+export const gateChallengeStale = (): HttpError =>
+  new HttpError(409, 'GATE_CHALLENGE_STALE', 'This challenge is no longer current');
+
+export const gateUnavailable = (): HttpError =>
+  new HttpError(503, 'GATE_UNAVAILABLE', 'The security check is temporarily unavailable');
+
+export const notRestricted = (): HttpError =>
+  new HttpError(409, 'NOT_RESTRICTED', 'This employee has no restricted access to restore');
+
+export const escalationNotAcknowledged = (): HttpError =>
+  new HttpError(
+    409,
+    'ESCALATION_NOT_ACKNOWLEDGED',
+    'Acknowledge the escalation before restoring access',
+  );

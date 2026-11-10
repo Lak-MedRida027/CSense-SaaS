@@ -20,3 +20,6 @@ export { BadgeAward, BadgeAwardImmutableError } from './BadgeAward.js';
 export { RiskAssessment, RiskAssessmentImmutableError } from './RiskAssessment.js';
 export { Escalation } from './Escalation.js';
 export { ReconcileMarker } from './ReconcileMarker.js';
+export { GateQuestion } from './GateQuestion.js';
+export { GateRun } from './GateRun.js';
+export { GateAnswer, GateAnswerImmutableError } from './GateAnswer.js';

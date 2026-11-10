@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
-import { Types } from 'mongoose';
-import type { AttemptEndReason, RiskFacts } from '@csense/shared';
-import { AuditLog, FinalTest, QuizAttempt, numericSeqFilter } from '../../models/index.js';
+import { Types, trusted } from 'mongoose';
+import { GATE_RISK_WINDOW, type AttemptEndReason, type RiskFacts } from '@csense/shared';
+import { AuditLog, FinalTest, GateRun, QuizAttempt, numericSeqFilter } from '../../models/index.js';
 import { stableStringify } from '../audit/chain.js';
 import { curriculumFor } from '../learning/curriculum.service.js';
 
@@ -30,7 +30,7 @@ export async function loadRiskFacts(
   options: { phishingEnabled: boolean },
 ): Promise<RiskFacts> {
   const owner = new Types.ObjectId(userId);
-  const [curriculum, rows, finalExists, cooldownRows] = await Promise.all([
+  const [curriculum, rows, finalExists, cooldownRows, gateRows] = await Promise.all([
     curriculumFor(userId),
     QuizAttempt.find({ userId: owner })
       .select(
@@ -50,6 +50,14 @@ export async function loadRiskFacts(
       .sort({ createdAt: -1, _id: -1 })
       .limit(MAX_COOLDOWNS)
       .lean<{ metadata?: { assessmentId?: unknown }; createdAt: Date }[]>(),
+    // Closed gate runs (ADR 0017): the model reads the most recent window, so only those are loaded.
+    GateRun.find({ userId: owner, status: trusted({ $in: ['passed', 'restricted'] }) })
+      .select('status firstAnswerCorrect closedAt')
+      .sort({ closedAt: -1, _id: -1 })
+      .limit(GATE_RISK_WINDOW)
+      .lean<
+        { status: 'passed' | 'restricted'; firstAnswerCorrect?: boolean | null; closedAt: Date }[]
+      >(),
   ]);
 
   const passedModules = new Set<string>();
@@ -82,7 +90,16 @@ export async function loadRiskFacts(
       at: c.createdAt.toISOString(),
     })),
     simulation: { enabled: options.phishingEnabled, outcomes: [] },
-    gate: null,
+    gate:
+      gateRows.length === 0
+        ? null
+        : {
+            runs: gateRows.map((g) => ({
+              status: g.status,
+              firstAnswerCorrect: g.firstAnswerCorrect === true,
+              closedAt: g.closedAt.toISOString(),
+            })),
+          },
   };
 }
 
@@ -102,6 +119,16 @@ export function digestFacts(facts: RiskFacts): string {
       passedModuleIds: [...facts.curriculum.passedModuleIds].sort(),
     },
     cooldowns: [...facts.cooldowns].sort((a, b) => a.at.localeCompare(b.at)),
+    gate: facts.gate
+      ? {
+          runs: [...facts.gate.runs].sort(
+            (a, b) =>
+              a.closedAt.localeCompare(b.closedAt) ||
+              a.status.localeCompare(b.status) ||
+              Number(a.firstAnswerCorrect) - Number(b.firstAnswerCorrect),
+          ),
+        }
+      : null,
   };
   return createHash('sha256').update(stableStringify(canonical)).digest('hex');
 }

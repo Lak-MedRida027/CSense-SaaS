@@ -1,6 +1,7 @@
 export * from './math.js';
 export * from './knowledge.js';
 export * from './behavioural.js';
+export * from './gate.js';
 export * from './simulation.js';
 export * from './engagement.js';
 export * from './composite.js';

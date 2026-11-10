@@ -19,6 +19,9 @@ export const AUDIT_ACTIONS = [
   'escalation.resolved',
   'escalation.resolve_refused',
   'governance.critical_event_recorded',
+  'gate.access_restored',
+  'gate.content_unavailable',
+  'gate.offline_release',
   'audit.integrity_checked',
   'maintenance.reconcile_run',
 ] as const;

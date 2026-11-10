@@ -1,0 +1,8 @@
+.notice {
+  position: fixed;
+  top: var(--cs-space-4);
+  left: 50%;
+  z-index: var(--cs-z-toast);
+  width: min(640px, calc(100vw - var(--cs-space-8)));
+  transform: translateX(-50%);
+}

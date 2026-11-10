@@ -35,4 +35,6 @@ export interface AuthContext {
   userId: string;
   role: Role;
   sessionId: string;
+  /** Employees only: the latest gate run is restricted and not yet restored (ADR 0015). */
+  accessRestricted: boolean;
 }

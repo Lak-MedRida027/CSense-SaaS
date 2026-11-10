@@ -94,3 +94,7 @@
   font-size: var(--cs-font-size-sm);
   color: var(--cs-color-text-secondary);
 }
+
+.signOut {
+  align-self: center;
+}

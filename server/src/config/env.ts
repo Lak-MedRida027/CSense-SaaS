@@ -1,7 +1,19 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { z } from 'zod';
-import { BCRYPT_MIN_COST } from '@csense/shared';
+import {
+  BCRYPT_MIN_COST,
+  GATE_ATTEMPTS_DEFAULT,
+  GATE_ATTEMPTS_MAX,
+  GATE_ATTEMPTS_MIN,
+  GATE_CLEARANCE_TTL_DEFAULT,
+  GATE_CHALLENGE_TTL_DEFAULT,
+  GATE_CHALLENGE_TTL_MAX_SECONDS,
+  GATE_CHALLENGE_TTL_MIN_SECONDS,
+  GATE_CLEARANCE_TTL_MAX_SECONDS,
+  GATE_CLEARANCE_TTL_MIN_SECONDS,
+  isValidTimeZone,
+} from '@csense/shared';
 import { isDuration, parseDuration } from '../lib/duration.js';
 
 /**
@@ -125,6 +137,41 @@ export const envSchema = z
     // Critical, management-tier or risk_accepted escalations must be resolved by a different
     // administrator than the one who acknowledged them. Set false only for single-admin organisations.
     ESCALATION_REQUIRE_SECOND_ADMIN: booleanFlag.default(true),
+
+    // --- Pre-access security gate (Phase 5, ADR 0015, 0017) ---
+    // Wrong answers allowed per gate run before access is restricted (1..10).
+    GATE_MAX_ATTEMPTS: z.coerce
+      .number()
+      .int()
+      .min(GATE_ATTEMPTS_MIN)
+      .max(GATE_ATTEMPTS_MAX)
+      .default(GATE_ATTEMPTS_DEFAULT),
+    // How long a passed gate stays valid (5m..24h): a new question is asked after it.
+    GATE_CLEARANCE_TTL: boundedDuration(
+      GATE_CLEARANCE_TTL_MIN_SECONDS,
+      GATE_CLEARANCE_TTL_MAX_SECONDS,
+      GATE_CLEARANCE_TTL_DEFAULT,
+    ),
+    // How long an unanswered challenge stays valid (1m..60m). An expired one is stale (409) and the
+    // client asks for a new one; nothing is consumed.
+    GATE_CHALLENGE_TTL: boundedDuration(
+      GATE_CHALLENGE_TTL_MIN_SECONDS,
+      GATE_CHALLENGE_TTL_MAX_SECONDS,
+      GATE_CHALLENGE_TTL_DEFAULT,
+    ),
+    // Offline-release reports one employee may send per hour (POST /gate/offline-releases).
+    GATE_OFFLINE_REPORT_RATE_MAX: z.coerce.number().int().min(1).max(1000).default(10),
+    // An administrator may restore access only after the escalation was acknowledged.
+    GATE_RESTORE_REQUIRES_ACK: booleanFlag.default(true),
+    // IANA zone of the organisation: gate XP is one award per local day; also dates the reference id.
+    ORG_TIMEZONE: z
+      .string()
+      .min(1)
+      .max(64)
+      .refine(isValidTimeZone, {
+        message: 'must be a valid IANA time zone such as Africa/Casablanca',
+      })
+      .default('UTC'),
   })
   .superRefine((env, ctx) => {
     if (env.JWT_ACCESS_SECRET === env.REFRESH_TOKEN_SECRET) {

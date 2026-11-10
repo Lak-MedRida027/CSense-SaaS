@@ -1,6 +1,7 @@
 import { Types, trusted } from 'mongoose';
 import type { Logger } from 'pino';
 import { ReconcileMarker } from '../../models/index.js';
+import { usersNeedingGateRepair } from '../gate/gate.repair.js';
 import type { EscalationService } from '../governance/escalation.service.js';
 import type { ReconcileService } from './reconcile.service.js';
 
@@ -54,6 +55,8 @@ export function createSweeper(deps: SweeperDeps): Sweeper {
   let running = false;
   /** Where the rolling disengagement scan continues; null starts from the beginning. */
   let scanCursor: string | null = null;
+  /** Where the rolling gate-repair scan continues. */
+  let gateCursor: string | null = null;
 
   async function sweepOnce(): Promise<SweepSummary> {
     const summary: SweepSummary = { reconciled: 0, failed: 0, auditWritten: 0, disengaged: 0 };
@@ -118,6 +121,28 @@ export function createSweeper(deps: SweeperDeps): Sweeper {
           deps.logger.error({ err: e, userId }, 'Could not back off reconcile marker');
         });
       }
+    }
+
+    // Gate repairs that left no marker: a restriction without its flag or escalation (P5-L6) and a
+    // flag that outlived its restore (P5-L3). Bounded, indexed, paged like the scan below.
+    try {
+      const gate = await usersNeedingGateRepair(
+        new Date(deps.clock().getTime() - OUTBOX_GRACE_MS),
+        { afterId: gateCursor },
+        deps.clock(),
+      );
+      gateCursor = gate.next;
+      for (const userId of gate.userIds) {
+        try {
+          await deps.reconcile.reconcileUser(userId);
+          summary.reconciled += 1;
+        } catch (err) {
+          summary.failed += 1;
+          deps.logger.error({ err, userId }, 'Gate repair failed');
+        }
+      }
+    } catch (err) {
+      deps.logger.error({ err }, 'Gate repair scan failed');
     }
 
     // Time passing is the trigger for disengagement, so it needs a periodic scan: a bounded,
