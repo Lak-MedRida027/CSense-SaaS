@@ -8,7 +8,8 @@
     "build": "tsc -b",
     "start": "node dist/src/index.js",
     "bootstrap:admin": "node dist/src/scripts/bootstrapAdmin.js",
-    "bootstrap:admin:dev": "tsx src/scripts/bootstrapAdmin.ts"
+    "bootstrap:admin:dev": "tsx src/scripts/bootstrapAdmin.ts",
+    "seed:learning:dev": "tsx src/scripts/seedLearning.ts"
   },
   "dependencies": {
     "@csense/shared": "0.1.0",

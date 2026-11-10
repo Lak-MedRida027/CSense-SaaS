@@ -2,6 +2,7 @@ import { createApp } from './app.js';
 import { toAppConfig } from './config/appConfig.js';
 import { loadEnv } from './config/env.js';
 import { connectDb, disconnectDb } from './db/connect.js';
+import { ensureLearningIndexes } from './db/learningIndexes.js';
 import { scrubBootstrapEnv } from './config/scrubEnv.js';
 import { createLogger } from './lib/logger.js';
 
@@ -18,6 +19,8 @@ async function main(): Promise<void> {
 
   await connectDb(env.MONGODB_URI);
   logger.info('Connected to MongoDB');
+  // The learning engine's correctness rests on unique indexes: build and verify them, or refuse to start.
+  await ensureLearningIndexes();
 
   const app = await createApp({ logger, config: toAppConfig(env) });
   const server = app.listen(env.PORT, () => {
