@@ -90,3 +90,6 @@ CSense is a user-space Electron application. It cannot replace the Windows logon
 2. **An answer that lands after sign-out is discarded (P5-L1).** `submitAnswer` captures a session generation before the request and drops the result if any session change happened meanwhile, so a late grant can never move the gate of a signed-out (or different) user.
 3. **Identity changes re-gate (P5-L2).** `session.login` is refused unless main's gate is waiting at the Login step, and any sign-in that still arrives while the workstation is released re-locks and re-checks the gate (an administrator becoming an employee, or another account).
 
+
+## Decision (product owner, 2026-11-10): restore stays single-administrator (D5-7)
+Restoring a restricted employee's access requires the `gate_access_restricted` escalation to be acknowledged and a note, but **one administrator may both acknowledge and restore**. The four-eyes rule from ADR 0011 (P4-L8/P4-L11) applies to *resolving* the escalation, not to lifting the block, so the restriction's escalation still needs a second administrator to close it unless it is resolved as `remediated`. Restores remain fully audited (`gate.access_restored`, note hash only) and are visible on the escalation.
