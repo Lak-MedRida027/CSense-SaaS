@@ -1,5 +1,5 @@
 import { Schema, model, type InferSchemaType } from 'mongoose';
-import { LEVELS, ROLES } from '@csense/shared';
+import { LEVELS, ONBOARDING_OUTCOMES, ROLES } from '@csense/shared';
 import { baseSchemaOptions, intValidator } from './schemaOptions.js';
 
 /**
@@ -80,6 +80,17 @@ const employeeSchema = new Schema(
         {
           restrictedAt: { type: Date, required: true },
           runId: { type: Schema.Types.ObjectId, ref: 'GateRun', required: true },
+        },
+        { _id: false, strict: 'throw' },
+      ),
+      default: null,
+    },
+    // First-run onboarding state (FR4, ADR 0020). Set once, first write wins; no XP or risk effect.
+    onboarding: {
+      type: new Schema(
+        {
+          outcome: { type: String, enum: ONBOARDING_OUTCOMES, required: true },
+          at: { type: Date, required: true },
         },
         { _id: false, strict: 'throw' },
       ),

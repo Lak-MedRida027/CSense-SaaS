@@ -52,7 +52,14 @@ describe('POST /auth/login', () => {
     expect(res.body).toMatchObject({
       tokenType: 'Bearer',
       accessTokenExpiresIn: 900,
-      user: { id: emp.id, email: emp.email, role: 'employee', isActive: true, level: 'Apprentice' },
+      user: {
+        id: emp.id,
+        email: emp.email,
+        role: 'employee',
+        isActive: true,
+        level: 'Apprentice',
+        onboarding: null,
+      },
     });
     expect(typeof res.body.accessToken).toBe('string');
     expect(res.body.refreshToken).toMatch(/^[a-f0-9]{24}\.[A-Za-z0-9_-]{43}$/);

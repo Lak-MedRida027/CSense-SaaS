@@ -5,7 +5,7 @@ Base path: `/api/v1`. Source: `docs/CSense_UseCase_UML.png` and the Client Needs
 **Implemented:** Phase 0 `GET /health` and `GET /health/ready`; Phase 2 the four Authenticate
 routes (`/auth/login`, `/auth/refresh`, `/auth/logout`, `/auth/me`), `POST /admin/users` and
 `GET /config/features`; Phase 3 the 15 learning-engine routes below (all employee-only); Phase 4 the
-8 routes for XP, badges, risk profiles, escalations and the audit log; Phase 5 the 5 gate routes below. These 36 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
+8 routes for XP, badges, risk profiles, escalations and the audit log; Phase 5 the 5 gate routes below; Phase 6 `PATCH /me/onboarding`. These 37 are the whole route inventory (snapshot-tested in `server/test/rbac.denyByDefault.test.ts`). Every other route below is a contract. No stubs are registered, so unimplemented routes return 404 (deny by default).
 
 ## Auth levels
 | Level | Meaning |
@@ -99,6 +99,8 @@ enumeration. Stack traces and internal messages are never returned.
 | POST | `/auth/logout` (idempotent; 204 even for an unknown token) | `{refreshToken}` | 204 | refresh | 2 |
 | GET | `/auth/me` | none | 200 `UserDTO` (`EmployeeDTO` / `AdministratorDTO`) | auth | 2 |
 
+`EmployeeDTO` (login `user`, `/auth/me`, `POST /admin/users`) carries `onboarding: { outcome: 'completed' | 'skipped', at: ISO time } | null` (Phase 6, FR4); `null` until the employee finishes or skips the first-run onboarding. Administrators have no such field.
+
 ### Interact with Security Gate / Escalate Restricted Access (Phase 5; ADR 0015, 0017)
 The gate is **pre-access, post-authentication** (U15): the desktop window locks at start-up, the challenge is served to a signed-in employee. Failed logins never count as gate attempts. Administrators are released without a challenge, and every `/gate/*` route is employee-only.
 
@@ -169,14 +171,20 @@ Notes:
 - `QuizOverviewDTO` and `FinalTestOverviewDTO` carry `cooldownUntil` (ISO time or null) and `questionCount` is the number a session serves, not the size of the pool; `blockedReason` can be `cooldown`.
 - Pass threshold is `Quiz.passingScore` per module (default 70); score is `floor(100*correct/total)`.
 - Answer-set problems (unserved or duplicate question, option out of range) are `VALIDATION_ERROR` 400 with paths like `answers.2.questionId`; the session stays open.
-- `/me/dashboard` and `/me/progress` (Phase 6) are not implemented; `GET /modules` carries the progress overview now.
+- There are no `/me/dashboard` or `/me/progress` routes (removed from the contract in Phase 6, D6-3): the dashboard is composed client-side from `GET /modules`, `GET /me/xp` and `GET /me/badges`.
+- Desktop bridge note (Phase 6, ADR 0020): bridge v1 stays version 1 and gains the `learning.*` and `me.*` methods; they map onto the routes above and add no server surface other than `PATCH /me/onboarding`.
 - `AttemptResultDTO.effects` is `{ xpEarned?, badge? }`: on the passing attempt of a module `xpEarned` is the whole XP of that module (completion, first try, perfect, practice) and `badge` is the module badge; failed attempts carry `{}`. Both are rebuilt from the attempt history by reconcile if a hook fails.
 
-### View Progress Dashboard
-| Method | Route | Auth | Phase |
-|---|---|---|---|
-| GET | `/me/dashboard`, `/me/progress` | self | 6 |
-| PATCH | `/me/onboarding` (FR4; no use case in the UML) | self | 6 |
+### View Progress Dashboard and onboarding (Phase 6; ADR 0020)
+The dashboard has no route of its own (see the learning-engine notes). Onboarding (FR4; no use case in the UML):
+
+| Method | Route | Body | Success | Errors |
+|---|---|---|---|---|
+| PATCH | `/me/onboarding` | strict `{ outcome: 'completed' \| 'skipped' }` | 200 `OnboardingStateDTO` `{ outcome, at }` | 400 `VALIDATION_ERROR` (extra field, unknown outcome), 401, 403 (administrator, or `ACCESS_RESTRICTED`) |
+
+- Employee-only and **not** allowed while access is restricted (no `allowWhileRestricted`).
+- **First write wins**: the update only applies while `onboarding` is null, so a repeat or concurrent call returns the stored state unchanged. The server stamps `at` from its clock.
+- No XP, no risk input and no audit entry (not a security event). Identity comes from the token; there is no user id parameter.
 
 ### Gamification (Phase 4; ADR 0009)
 Employee-only, self only: identity comes from the token, no route takes a user id, and any query

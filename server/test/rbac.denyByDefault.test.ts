@@ -70,6 +70,8 @@ describe('route table', () => {
         // Phase 4: gamification (employee, self only) and governance (administrator only).
         'GET /me/xp role:employee',
         'GET /me/badges role:employee',
+        // Phase 6: first-run onboarding (FR4). Not allowed while restricted.
+        'PATCH /me/onboarding role:employee',
         'GET /admin/risk-profiles role:administrator',
         'GET /admin/users/:userId/risk-profile role:administrator',
         'GET /admin/escalations role:administrator',

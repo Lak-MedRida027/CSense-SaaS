@@ -11,7 +11,14 @@ import { configureAudit, createAuditService } from '../features/audit/audit.serv
 import { hashPassword } from '../features/auth/password.js';
 import type { Shuffle } from '../features/learning/shuffle.js';
 import { createLogger } from '../lib/logger.js';
-import { Administrator, Employee, GateQuestion, Module, UserProgress } from '../models/index.js';
+import {
+  Administrator,
+  Assessment,
+  Employee,
+  GateQuestion,
+  Module,
+  UserProgress,
+} from '../models/index.js';
 import { bootstrapAdmin } from '../scripts/bootstrapAdmin.js';
 import { SEED_GATE_QUESTIONS } from '../scripts/seed/gateContent.js';
 import { seedBadges } from '../scripts/seedBadges.js';
@@ -25,9 +32,11 @@ import { seedLearningContent } from '../scripts/seedLearning.js';
  * `createApp` never reads CSENSE_E2E_HARNESS; only this file does.
  *
  * It prints ONE JSON line to stdout when ready:
- *   { baseUrl, origin, accounts, gateKey, gateKeyText }
+ *   { baseUrl, origin, accounts, gateKey, gateKeyText, quizKey, exerciseKey }
  * and answers GET <origin>/__harness/requests with { count } (requests the API has handled).
- * `gateKey` (prompt -> index of the correct option) exists only in this test process output. The
+ * `gateKey` (prompt -> index of the correct option), `quizKey` (question text -> index, over every
+ * module quiz pool and the final-test pool) and `exerciseKey` (exercise prompt -> index) exist only
+ * in this test process output. The
  * harness serves options in stored order (identity shuffle) so the index is valid for the UI.
  * It stops on SIGTERM, SIGINT or when stdin closes.
  */
@@ -59,6 +68,8 @@ export interface HarnessAccounts {
   'gate-pass': HarnessAccount;
   'gate-fail': HarnessAccount;
   quiz: HarnessAccount;
+  /** Fresh employee for the journey spec: no progress and onboarding NOT set. */
+  journey: HarnessAccount;
 }
 
 export interface HarnessReady {
@@ -70,6 +81,10 @@ export interface HarnessReady {
   gateKey: Record<string, number>;
   /** Gate prompt -> text of the correct option. */
   gateKeyText: Record<string, string>;
+  /** Question text -> index of the correct option, for every quiz pool and the final-test pool. */
+  quizKey: Record<string, number>;
+  /** Exercise prompt -> index of the correct option. */
+  exerciseKey: Record<string, number>;
 }
 
 export interface RunningHarness extends HarnessReady {
@@ -117,6 +132,7 @@ async function createAccounts(config: AppConfig): Promise<{
     'gate-pass': { email: 'gate-pass@e2e.example.com', password: password() },
     'gate-fail': { email: 'gate-fail@e2e.example.com', password: password() },
     quiz: { email: 'quiz@e2e.example.com', password: password() },
+    journey: { email: 'journey@e2e.example.com', password: password() },
   };
 
   // The real bootstrap path: the only code that may create an account without a creator.
@@ -140,16 +156,23 @@ async function createAccounts(config: AppConfig): Promise<{
     createdBy: admin._id,
   });
 
-  const employee = async (key: 'gate-pass' | 'gate-fail' | 'quiz', name: string) =>
+  // The Phase 5 accounts are pre-onboarded so their specs stay focused; `journey` is not (plan 9.5).
+  const employee = async (
+    key: 'gate-pass' | 'gate-fail' | 'quiz' | 'journey',
+    name: string,
+    onboarded: boolean,
+  ) =>
     Employee.create({
       name,
       email: accounts[key].email,
       passwordHash: await hash(accounts[key].password),
       createdBy: admin._id,
+      ...(onboarded ? { onboarding: { outcome: 'completed', at: new Date() } } : {}),
     });
-  await employee('gate-pass', 'Gate Pass');
-  await employee('gate-fail', 'Gate Fail');
-  const quiz = await employee('quiz', 'Quiz Taker');
+  await employee('gate-pass', 'Gate Pass', true);
+  await employee('gate-fail', 'Gate Fail', true);
+  const quiz = await employee('quiz', 'Quiz Taker', true);
+  await employee('journey', 'Jordan Journey', false);
   return { accounts, quizUserId: quiz.id };
 }
 
@@ -199,6 +222,38 @@ async function gateKeys(): Promise<{
 }
 
 /**
+ * Answer keys for the journey spec, read from the database after seeding (test-only). Throws when
+ * a text is duplicated, because a key keyed by text would then be ambiguous for the spec.
+ */
+export async function journeyKeys(): Promise<{
+  quizKey: Record<string, number>;
+  exerciseKey: Record<string, number>;
+}> {
+  const quizKey: Record<string, number> = {};
+  const assessments = await Assessment.find({})
+    .select('+questions.correctAnswer questions.text')
+    .lean<{ questions: { text: string; correctAnswer: number }[] }[]>();
+  for (const a of assessments) {
+    for (const q of a.questions) {
+      if (q.text in quizKey) throw new Error(`duplicate quiz question text: ${q.text}`);
+      quizKey[q.text] = q.correctAnswer;
+    }
+  }
+  const exerciseKey: Record<string, number> = {};
+  const modules = await Module.find({})
+    .select('exercises.prompt +exercises.correctAnswer')
+    .lean<{ exercises: { prompt: string; correctAnswer: number }[] }[]>();
+  for (const m of modules) {
+    for (const e of m.exercises) {
+      if (e.prompt in exerciseKey) throw new Error(`duplicate exercise prompt: ${e.prompt}`);
+      exerciseKey[e.prompt] = e.correctAnswer;
+    }
+  }
+  if (Object.keys(quizKey).length === 0) throw new Error('no quiz keys: seed incomplete');
+  return { quizKey, exerciseKey };
+}
+
+/**
  * Seed everything and start the API on 127.0.0.1 with an OS-assigned port. The database must
  * already be connected (the caller owns the memory server). Exported for the harness unit test.
  */
@@ -211,7 +266,7 @@ export async function provisionHarness(): Promise<RunningHarness> {
   await seedGateContent({ nodeEnv: 'test' });
   const { accounts, quizUserId } = await createAccounts(config);
   await completeFirstModule(quizUserId);
-  const keys = await gateKeys();
+  const keys = { ...(await gateKeys()), ...(await journeyKeys()) };
 
   const app = await createApp({
     logger: createLogger('silent'),
@@ -282,6 +337,8 @@ async function main(): Promise<void> {
     accounts: harness.accounts,
     gateKey: harness.gateKey,
     gateKeyText: harness.gateKeyText,
+    quizKey: harness.quizKey,
+    exerciseKey: harness.exerciseKey,
   };
   process.stdout.write(`${JSON.stringify(ready)}\n`);
 }

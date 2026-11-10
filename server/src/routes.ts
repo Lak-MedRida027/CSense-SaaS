@@ -17,6 +17,7 @@ import { configRoutes } from './features/config/config.routes.js';
 import { learningRoutes } from './features/learning/learning.routes.js';
 import type { LearningHooks } from './features/learning/learningHooks.js';
 import { secureShuffle, type Shuffle } from './features/learning/shuffle.js';
+import { onboardingRoutes } from './features/onboarding/onboarding.routes.js';
 import { healthRoutes } from './features/health/health.routes.js';
 import { usersRoutes } from './features/users/users.routes.js';
 import type { RouteDef } from './http/routeRegistry.js';
@@ -78,6 +79,7 @@ export function allRoutes({
       shuffle,
     }),
     ...gamificationRoutes({ badges: gamification.badges }),
+    ...onboardingRoutes({ clock }),
     ...gateRoutes({
       gate: createGateService({
         clock,

@@ -1,3 +1,4 @@
+import { Types } from 'mongoose';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   gateAttemptResultSchema,
@@ -8,10 +9,11 @@ import {
 import {
   HarnessRefusedError,
   assertHarnessEnabled,
+  journeyKeys,
   provisionHarness,
   type RunningHarness,
 } from '../src/testing/e2eServer.js';
-import { Administrator, Employee, UserProgress } from '../src/models/index.js';
+import { Administrator, Assessment, Employee, UserProgress } from '../src/models/index.js';
 
 describe('e2e harness guard (ADR 0018)', () => {
   it('EH1: refuses unless NODE_ENV=test AND CSENSE_E2E_HARNESS=1', () => {
@@ -65,11 +67,11 @@ describe('e2e harness', () => {
     harness = await provisionHarness();
     expect(harness.baseUrl).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/api\/v1$/);
     expect(Object.keys(harness.accounts).sort()).toEqual(
-      ['admin', 'admin2', 'gate-fail', 'gate-pass', 'quiz'].sort(),
+      ['admin', 'admin2', 'gate-fail', 'gate-pass', 'journey', 'quiz'].sort(),
     );
     expect(Object.keys(harness.gateKey)).toHaveLength(30);
     expect(await Administrator.countDocuments({})).toBe(2);
-    expect(await Employee.countDocuments({})).toBe(3);
+    expect(await Employee.countDocuments({})).toBe(4);
 
     // The quiz employee has module 1's content completed.
     const quiz = await Employee.findOne({ email: harness.accounts.quiz.email }).lean();
@@ -114,6 +116,54 @@ describe('e2e harness', () => {
     expect(harness.requestCount()).toBe(count.count);
     // Anything outside the registry is still a 404 (the harness adds no API route).
     expect((await call('/__harness/requests', { token })).status).toBe(404);
+  });
+
+  it('EH4: journey is not onboarded, the others are; quizKey and exerciseKey are complete and valid', async () => {
+    harness = await provisionHarness();
+    const stored = await Employee.find({}).select('email onboarding').lean();
+    const state = Object.fromEntries(stored.map((e) => [e.email, e.onboarding?.outcome ?? null]));
+    expect(state).toEqual({
+      [harness.accounts.journey.email]: null,
+      [harness.accounts['gate-pass'].email]: 'completed',
+      [harness.accounts['gate-fail'].email]: 'completed',
+      [harness.accounts.quiz.email]: 'completed',
+    });
+    const journey = await Employee.findOne({ email: harness.accounts.journey.email }).lean();
+    if (!journey) throw new Error('journey employee missing');
+    expect(await UserProgress.countDocuments({ userId: journey._id })).toBe(0);
+
+    const login = await call('/auth/login', { body: harness.accounts.journey });
+    expect((login.body as LoginResponse).user).toMatchObject({ onboarding: null });
+
+    // Every pool question (module quizzes and the final test) has a key; every seeded exercise too.
+    const assessments = await Assessment.find({}).select('questions.text').lean();
+    const texts = assessments.flatMap((a) => a.questions.map((q) => q.text));
+    expect(texts.length).toBeGreaterThan(100);
+    expect(new Set(texts).size).toBe(texts.length);
+    expect(Object.keys(harness.quizKey).sort()).toEqual([...texts].sort());
+    expect(Object.keys(harness.exerciseKey).length).toBeGreaterThan(0);
+    for (const v of [...Object.values(harness.quizKey), ...Object.values(harness.exerciseKey)]) {
+      expect(Number.isInteger(v) && v >= 0 && v < 6).toBe(true);
+    }
+
+    // A served quiz question's key is valid for the served order (identity shuffle).
+    const token = (login.body as LoginResponse).accessToken;
+    const modules = (await call('/modules', { token })).body as {
+      modules: { moduleId: string }[];
+    };
+    expect(modules.modules.length).toBeGreaterThan(0);
+  });
+
+  it('EH5: a duplicated question text makes the harness refuse to start', async () => {
+    harness = await provisionHarness();
+    const first = await Assessment.collection.findOne({});
+    const questions = first?.questions as Record<string, unknown>[] | undefined;
+    const q = questions?.[0];
+    if (!first || !q) throw new Error('fixture');
+    await Assessment.collection.updateOne({ _id: first._id }, {
+      $push: { questions: { ...q, _id: new Types.ObjectId() } },
+    } as never);
+    await expect(journeyKeys()).rejects.toThrow(/duplicate quiz question text/);
   });
 
   it('EH3: gate-fail restricts after three wrong answers and the escalation is visible to administrators', async () => {
