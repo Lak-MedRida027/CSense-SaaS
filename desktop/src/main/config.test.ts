@@ -200,3 +200,35 @@ describe('CFG7-CFG8: numeric bounds and defaults', () => {
     );
   });
 });
+
+describe('CFG9-CFG10: media config', () => {
+  const load = (build: Record<string, string>) =>
+    loadDesktopConfig({ build, env: {} }, { isPackaged: true }).media;
+
+  it('defaults to the bundled mode with the documented base URL', () => {
+    expect(load({})).toEqual({ baseUrl: 'https://media.example.com/csense/', error: null });
+  });
+  it('CFG9 a non-https, credentialed or malformed base is refused (media disabled)', () => {
+    for (const base of [
+      'http://media.example.com/csense/',
+      'ftp://media.example.com/',
+      'https://u:p@media.example.com/csense/',
+      'https://media.example.com/csense/?x=1',
+      'nonsense',
+    ]) {
+      const m = load({ MAIN_VITE_MEDIA_BASE_URL: base });
+      expect(m.baseUrl, base).toBeNull();
+      expect(m.error, base).not.toBeNull();
+    }
+  });
+  it('a base path without a trailing slash is normalised', () => {
+    expect(load({ MAIN_VITE_MEDIA_BASE_URL: 'https://cdn.example.org/v1' }).baseUrl).toBe(
+      'https://cdn.example.org/v1/',
+    );
+  });
+  it('CFG10 MAIN_VITE_MEDIA_MODE=remote is refused until Phase 10', () => {
+    const m = load({ MAIN_VITE_MEDIA_MODE: 'remote' });
+    expect(m.baseUrl).toBeNull();
+    expect(m.error).toMatch(/bundled/);
+  });
+});

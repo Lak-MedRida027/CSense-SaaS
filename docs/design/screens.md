@@ -149,3 +149,16 @@ Seams: `onSortChange`, `onFilterChange`, `onPageChange`, `onOpenEmployee`, `onRe
 - **Session ended:** Login shows "Your session ended. Please sign in again."
 - **Training home** (`TrainingHomeScreen`, temporary, replaced by the dashboard in Phase 6): module list with derived
   status, unlock rule, `Start quiz` only where main reports the quiz can start, administrator placeholder.
+
+## Phase 6 additions: the employee journey
+- **Module player** (`ModulePlayerScreen`): states `ready | loading | error | locked | not_found`; lesson stage
+  (video with captions and transcript, `LessonText`, key takeaways) with a soft-disabled primary action and its
+  reason; practice stage, one scenario at a time with immediate feedback ("Correct" / "Not quite", the correct
+  option tagged); quiz stage for a module already passed or retried ("Passed with N%", Retry quiz).
+- **Quiz** (`QuizScreen`): intro `startBlocked` (cooldown, already passed); result offers Review answers after every
+  submitted attempt; the review shows right/wrong and explanations, and the correct option only after a pass (D3-13).
+- **Modules, Badges, Final assessment** pages (`ModulesScreen`, `BadgesScreen`, `FinalAssessmentScreen`) each with
+  loading, empty, error and offline states; final entry states: locked, available, cooldown, completed, not configured.
+- **Dashboard**: empty and offline-error states, offline notice; unlock rules name the previous module.
+- **Onboarding**: module count from the overview, pass mark shown as "usually 70%".
+- **Display settings** and **Achievement** dialogs; administrators see `AdminHomeScreen` (placeholder).

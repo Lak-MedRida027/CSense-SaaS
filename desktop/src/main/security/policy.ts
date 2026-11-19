@@ -16,7 +16,7 @@ export const PRODUCTION_CSP = [
   "img-src 'self' data:",
   "font-src 'self'",
   "connect-src 'self'",
-  "media-src 'none'",
+  "media-src 'self'",
   "object-src 'none'",
   "frame-src 'none'",
   "worker-src 'none'",

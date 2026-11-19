@@ -113,6 +113,14 @@ export interface FakeBridge {
     exit: Fn;
     getOverview: Fn;
     getQuizOverview: Fn;
+    getModule: Fn;
+    startModule: Fn;
+    answerExercise: Fn;
+    completeContent: Fn;
+    getFinalTestOverview: Fn;
+    getXp: Fn;
+    getBadges: Fn;
+    completeOnboarding: Fn;
   };
 }
 
@@ -134,6 +142,14 @@ export function createFakeBridge(
     exit: vi.fn(() => Promise.resolve(ok({ attempt: null }))),
     getOverview: vi.fn(() => Promise.resolve(err('INTERNAL'))),
     getQuizOverview: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    getModule: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    startModule: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    answerExercise: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    completeContent: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    getFinalTestOverview: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    getXp: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    getBadges: vi.fn(() => Promise.resolve(err('INTERNAL'))),
+    completeOnboarding: vi.fn(() => Promise.resolve(ok({ outcome: 'completed', at: 'x' }))),
   };
   const bridge = {
     bridgeVersion: 1,
@@ -156,7 +172,20 @@ export function createFakeBridge(
       submit: m.submit,
       exit: m.exit,
     },
-    learning: { getOverview: m.getOverview, getQuizOverview: m.getQuizOverview },
+    learning: {
+      getOverview: m.getOverview,
+      getQuizOverview: m.getQuizOverview,
+      getModule: m.getModule,
+      startModule: m.startModule,
+      answerExercise: m.answerExercise,
+      completeContent: m.completeContent,
+      getFinalTestOverview: m.getFinalTestOverview,
+    },
+    me: {
+      getXp: m.getXp,
+      getBadges: m.getBadges,
+      completeOnboarding: m.completeOnboarding,
+    },
     events: {
       subscribe: (l: (e: MainEvent) => void) => {
         listener = l;

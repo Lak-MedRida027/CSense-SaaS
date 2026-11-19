@@ -103,6 +103,16 @@ clears and blocks the clipboard, blacks out screenshots of the window during a q
 Closing these gaps is **Phase 10 fleet policy** (machine-wide start, Assigned Access, `NoWinKeys`, `DisableTaskMgr`,
 `AllowClipboardHistory=0`, AppLocker, a relaunch watchdog). See ADR 0015 and ADR 0016.
 
+## Lesson media and the employee journey (Phase 6)
+Lesson video is a bundled placeholder pack in `desktop/resources/media/` (one 8 second original clip, WebVTT
+captions, an allowlist `manifest.json`), served by the app at `app://csense/media/` with Range support. It is
+**not** production media: real videos arrive with the remote mode in Phase 10. See that folder's README for how the
+clip is generated (no ffmpeg needed: `npx electron desktop/scripts/make-placeholder-clip.cjs`) and how to add files.
+
+The end-to-end journey (first login, gate, onboarding, seven modules with one failed attempt and review, dashboard
+XP and level checked against the API, final assessment, relaunch) is `desktop/e2e/journey.spec.ts`:
+`npm run build && npm run test:e2e`. Accessibility is also checked live with axe inside that spec.
+
 ## Scripts
 | Command | What it does |
 |---|---|

@@ -140,3 +140,39 @@ export function toQuizResult(r: AttemptResultDTO, moduleTitle: string): QuizResu
       : {}),
   };
 }
+
+/** Copy for a failed read of a whole view (dashboard, modules, badges, final, module). */
+export function loadErrorMessage(error: DesktopError | null | undefined, what: string): string {
+  switch (error?.code) {
+    case 'NETWORK_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return "Can't reach CSense. Check your connection and try again.";
+    case 'BAD_RESPONSE':
+    case 'INTERNAL':
+      return 'Something went wrong. Try again.';
+    case 'LOCKDOWN_ACTIVE':
+      return 'Finish or leave the quiz first.';
+    default:
+      return `${what} could not be loaded.`;
+  }
+}
+
+export function moduleActionErrorMessage(error: DesktopError): string {
+  switch (error.code) {
+    case 'NETWORK_UNAVAILABLE':
+    case 'INTERNAL_ERROR':
+      return "Can't reach CSense. Your choice was not saved: try again.";
+    case 'MODULE_LOCKED':
+      return 'Pass the previous quiz to unlock this module.';
+    case 'CONTENT_INCOMPLETE':
+      return 'Answer every practice scenario before the quiz.';
+    case 'RATE_LIMITED':
+      return 'Too many requests. Wait a moment and try again.';
+    case 'LOCKDOWN_ACTIVE':
+      return 'Finish or leave the quiz first.';
+    case 'NOT_FOUND':
+      return 'This module is no longer available.';
+    default:
+      return 'Something went wrong. Try again.';
+  }
+}

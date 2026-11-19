@@ -105,6 +105,7 @@ export function QuizAnswerReview({ title, questions, answers, onBackToResult }: 
               onSelect={() => undefined}
               mode="review"
               correctOptionId={q.correctOptionId}
+              answeredCorrectly={q.wasCorrect}
               explanation={q.explanation}
             />
           </li>

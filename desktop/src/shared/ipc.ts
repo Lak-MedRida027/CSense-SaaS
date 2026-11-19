@@ -2,7 +2,7 @@
  * Strict zod input schemas for every bridge v1 channel (main only; the preload never loads zod).
  * One schema per channel in `IPC_CHANNELS_V1`: `assertIpcRegistry` fails start-up if any is missing.
  */
-import { MAX_OPTIONS, objectIdSchema } from '@csense/shared';
+import { MAX_OPTIONS, ONBOARDING_OUTCOMES, objectIdSchema } from '@csense/shared';
 import { z } from 'zod';
 import { IPC_CHANNELS_V1, IPC_PREFIX, type IpcArea } from './ipcChannels';
 
@@ -63,6 +63,17 @@ export const IPC_INPUT_SCHEMAS = {
 
   'learning.getOverview': noInput,
   'learning.getQuizOverview': z.object({ moduleId: id }).strict(),
+  'learning.getModule': z.object({ moduleId: id }).strict(),
+  'learning.startModule': z.object({ moduleId: id }).strict(),
+  'learning.answerExercise': z
+    .object({ moduleId: id, exerciseId: id, selectedIndex: optionIndex })
+    .strict(),
+  'learning.completeContent': z.object({ moduleId: id }).strict(),
+  'learning.getFinalTestOverview': noInput,
+
+  'me.getXp': noInput,
+  'me.getBadges': noInput,
+  'me.completeOnboarding': z.object({ outcome: z.enum(ONBOARDING_OUTCOMES) }).strict(),
 } as const;
 
 export type IpcMethodKey = keyof typeof IPC_INPUT_SCHEMAS;

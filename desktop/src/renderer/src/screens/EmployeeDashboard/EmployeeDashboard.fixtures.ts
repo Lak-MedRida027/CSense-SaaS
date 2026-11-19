@@ -50,6 +50,32 @@ export const employeeDashboardFirstRunFixture: EmployeeDashboardScreenProps = {
   badges: fixtureBadges.map((b) => ({ ...b, earned: false, earnedAt: undefined })),
 };
 
+export const employeeDashboardEmptyFixture: EmployeeDashboardScreenProps = {
+  ...employeeDashboardFixture,
+  modules: [],
+  badges: [],
+  lockedReasons: {},
+  nextModuleId: undefined,
+  state: 'empty',
+};
+
+export const employeeDashboardOfflineFixture: EmployeeDashboardScreenProps = {
+  ...employeeDashboardFixture,
+  state: 'error',
+  errorDescription: "Can't reach CSense. Check your connection and try again.",
+};
+
+export const employeeDashboardCompleteFixture: EmployeeDashboardScreenProps = {
+  ...employeeDashboardFixture,
+  employee: { name: 'Amina Benali', level: 'Guardian', totalXP: 2100 },
+  xp: { currentLevelFloorXP: 2000, nextLevelXP: 3500, nextLevel: 'Defender', thresholds },
+  modules: fixtureModules.map((m) => ({ ...m, status: 'completed' as const, scorePercent: 90 })),
+  lockedReasons: {},
+  nextModuleId: undefined,
+  badges: fixtureBadges.map((b) => ({ ...b, earned: true, earnedAt: '2026-10-30' })),
+  finalAssessment: { status: 'completed', scorePercent: 93, questionCount: 15 },
+};
+
 export const employeeDashboardLoadingFixture: EmployeeDashboardScreenProps = {
   ...employeeDashboardFixture,
   state: 'loading',

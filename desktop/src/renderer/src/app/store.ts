@@ -36,6 +36,8 @@ export interface AppState {
   resume: SecureSessionView | null;
   /** Bumped by `navigate` events (notification clicks) so the router can go home. */
   homeRequests: number;
+  /** The latest `navigate` event from main (notification click), numbered so repeats are seen. */
+  navRequest: { id: number; to: 'home' | { module: string } } | null;
   appVersion: string;
 }
 
@@ -61,6 +63,7 @@ export function createAppStore(bridge: CSenseBridgeV1): AppStore {
     violation: null,
     resume: null,
     homeRequests: 0,
+    navRequest: null,
     appVersion: bridge.appVersion,
   };
   const listeners = new Set<() => void>();
@@ -96,7 +99,10 @@ export function createAppStore(bridge: CSenseBridgeV1): AppStore {
         set({ violation: { kind: e.kind, count: e.count, remaining: e.remaining } });
         break;
       case 'navigate':
-        set({ homeRequests: state.homeRequests + 1 });
+        set({
+          homeRequests: state.homeRequests + 1,
+          navRequest: { id: state.homeRequests + 1, to: e.to },
+        });
         break;
     }
   };

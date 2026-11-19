@@ -10,6 +10,7 @@ import {
   declaredMethodKeys,
 } from '../../shared/ipc';
 import { recordingLogger } from '../testing/fakes';
+import { IPC_CHANNEL_POLICY, type ChannelPolicy } from './policy';
 import { IpcRegistry, assertIpcRegistry, type IpcHandlers, type IpcMainLike } from './registry';
 
 const OID = 'a'.repeat(24);
@@ -58,7 +59,7 @@ describe('IPC1-IPC3: registry integrity', () => {
     expect(ipc.channels().sort()).toEqual([...IPC_CHANNEL_NAMES].sort());
   });
 
-  it('IPC8: the channel inventory is a reviewed snapshot (14 invoke channels + 1 event channel)', () => {
+  it('IPC8: the channel inventory is a reviewed snapshot (22 invoke channels + 1 event channel)', () => {
     expect(IPC_CHANNELS_V1).toMatchInlineSnapshot(`
       {
         "assessment": [
@@ -77,6 +78,16 @@ describe('IPC1-IPC3: registry integrity', () => {
         "learning": [
           "getOverview",
           "getQuizOverview",
+          "getModule",
+          "startModule",
+          "answerExercise",
+          "completeContent",
+          "getFinalTestOverview",
+        ],
+        "me": [
+          "getXp",
+          "getBadges",
+          "completeOnboarding",
         ],
         "session": [
           "getState",
@@ -85,7 +96,7 @@ describe('IPC1-IPC3: registry integrity', () => {
         ],
       }
     `);
-    expect(IPC_CHANNEL_NAMES).toHaveLength(14);
+    expect(IPC_CHANNEL_NAMES).toHaveLength(22);
     expect(IPC_EVENT_CHANNEL).toBe('csense:v1:event');
     expect(Object.keys(IPC_INPUT_SCHEMAS).sort()).toEqual(declaredMethodKeys().sort());
   });
@@ -131,7 +142,7 @@ describe('IPC1-IPC3: registry integrity', () => {
 
   it('there is no generic passthrough channel', () => {
     for (const name of IPC_CHANNEL_NAMES) {
-      expect(name).toMatch(/^csense:v1:(session|gate|assessment|learning)\.[a-zA-Z]+$/);
+      expect(name).toMatch(/^csense:v1:(session|gate|assessment|learning|me)\.[a-zA-Z]+$/);
     }
     expect(IPC_CHANNEL_NAMES.some((n) => /invoke|call|request\b|exec|eval|fetch/i.test(n))).toBe(
       false,
@@ -170,6 +181,19 @@ describe('IPC4-IPC7: the invoke pipeline', () => {
         { sessionId: OID, answers: [{ questionId: OID, selectedIndex: 0, correct: true }] },
       ],
       ['learning.getQuizOverview', { moduleId: OID, path: '/x' }],
+      ['learning.getModule', { moduleId: OID, url: 'https://x' }],
+      ['learning.startModule', { moduleId: 'nope' }],
+      ['learning.answerExercise', { moduleId: OID, exerciseId: OID, selectedIndex: 6 }],
+      [
+        'learning.answerExercise',
+        { moduleId: OID, exerciseId: OID, selectedIndex: 0, userId: OID },
+      ],
+      ['learning.completeContent', { moduleId: OID, force: true }],
+      ['learning.getFinalTestOverview', { x: 1 }],
+      ['me.getXp', 'x'],
+      ['me.completeOnboarding', { outcome: 'done' }],
+      ['me.completeOnboarding', { outcome: 'completed', at: 'now' }],
+      ['me.completeOnboarding', {}],
       ['learning.getQuizOverview', { moduleId: 'abc' }],
       ['gate.continue', { anything: 1 }],
       ['session.getState', 'x'],
@@ -263,6 +287,60 @@ describe('IPC4-IPC7: the invoke pipeline', () => {
     expect(await ipc.invoke('session.getState', okSender)).toBe('handled');
     t += 1001;
     expect(await ipc.invoke('gate.getView', okSender)).toBe('handled');
+  });
+
+  it('POL1: a channel without a policy row refuses start-up', () => {
+    const policy = { ...IPC_CHANNEL_POLICY } as Record<string, ChannelPolicy>;
+    delete policy['me.getXp'];
+    const ipc = fakeIpc();
+    const registry = new IpcRegistry({
+      ipc,
+      log: recordingLogger(),
+      validateSender: () => true,
+      policy,
+    });
+    expect(() => {
+      registry.register(allHandlers(), IPC_CHANNEL_NAMES);
+    }).toThrow(/me\.getXp has no policy/);
+  });
+
+  it('POL2: every declared channel has a policy row, and ceilings follow the plan (D6-10)', () => {
+    expect(Object.keys(IPC_CHANNEL_POLICY).sort()).toEqual(declaredMethodKeys().sort());
+    const rate = (k: keyof typeof IPC_CHANNEL_POLICY) => IPC_CHANNEL_POLICY[k].ratePerSecond;
+    expect(rate('learning.answerExercise')).toBe(5);
+    expect(rate('learning.startModule')).toBe(2);
+    expect(rate('learning.completeContent')).toBe(2);
+    expect(rate('me.completeOnboarding')).toBe(1);
+    expect(rate('learning.getOverview')).toBe(20);
+    expect(rate('me.getXp')).toBe(20);
+    // Phase 5 channels keep their behaviour: never release-gated here, always allowed in lockdown.
+    for (const k of declaredMethodKeys()) {
+      const p = IPC_CHANNEL_POLICY[k as keyof typeof IPC_CHANNEL_POLICY];
+      const journey = k.startsWith('learning.') || k.startsWith('me.');
+      expect(p.requiresRelease, k).toBe(journey);
+      expect(p.duringLockdown, k).toBe(journey ? 'deny' : 'allow');
+    }
+  });
+
+  it('POL3: per-channel rate ceilings are enforced (6th exercise answer in one second refused)', async () => {
+    let t = 5000;
+    const { ipc } = start(undefined, () => t);
+    const input = { moduleId: OID, exerciseId: OID, selectedIndex: 0 };
+    for (let i = 0; i < 5; i++) {
+      expect(await ipc.invoke('learning.answerExercise', okSender, input)).toBe('handled');
+    }
+    expect(await ipc.invoke('learning.answerExercise', okSender, input)).toMatchObject({
+      ok: false,
+      error: { code: 'INVALID_INPUT' },
+    });
+    expect(await ipc.invoke('me.completeOnboarding', okSender, { outcome: 'skipped' })).toBe(
+      'handled',
+    );
+    expect(
+      await ipc.invoke('me.completeOnboarding', okSender, { outcome: 'skipped' }),
+    ).toMatchObject({ ok: false });
+    t += 1001;
+    expect(await ipc.invoke('learning.answerExercise', okSender, input)).toBe('handled');
   });
 
   it('IPC7: a handler that throws returns INTERNAL with no stack or message', async () => {

@@ -11,6 +11,7 @@ Target: **WCAG 2.1 AA** in both themes. Accessibility is not optional; trade-off
 | jsx-a11y rules | `eslint.config.mjs` | `npm run lint` |
 | axe (WCAG A/AA, contrast off in jsdom) per component | `components/*/*.test.tsx` | `npm test` |
 | axe on every screen fixture in dark and light | `screens/screens.a11y.test.tsx` | `npm test` |
+| axe (legacy mode) on the **live app** at onboarding, module player (video and practice feedback), quiz intro, result, review, dashboard and final entry | `desktop/e2e/journey.spec.ts` via `e2e/support/journey.ts` `axeCheck` | `npm run test:e2e`; CI e2e job |
 | axe **with colour contrast** in real Chromium, styleguide + all screens, dark and light; keyboard and reduced-motion checks | `desktop/e2e/styleguide.a11y.spec.ts` | `npm run test:a11y -w @csense/desktop`; CI e2e job |
 
 The Chromium spec skips against a normal production build (no styleguide in it). CI runs it as its
@@ -51,10 +52,20 @@ own step with `CSENSE_REQUIRE_STYLEGUIDE=1`, which turns that skip into a failur
 7. Programmatic focus targets (result and feedback headings) have no visible ring because they are
    not interactive; their content is announced on focus.
 8. `VideoPlayerFrame` treats `captionsSrc` as optional, so `jsx-a11y/media-has-caption` is disabled
-   there and nothing yet enforces WCAG 1.2.2. Open follow-up for the module phase: require a
-   captions track for every video module in the content model.
+   there. **Closed in Phase 6 on the content side:** `moduleAuthoringSchema` requires `captionsUrl` and
+   at least one transcript cue for a video module, every bundled clip ships with a WebVTT file, captions
+   are on by default, and the transcript is the accessible alternative (WCAG 1.2.2, 1.2.3). Audio
+   description (1.2.5) remains a content obligation for Phase 7 authors.
 
 ## Manual checks before a release
 - Run NVDA (Windows) through gate -> login -> onboarding -> module -> quiz -> result.
 - Windows High Contrast / forced colours: confirm focus rings and borders stay visible.
 - 200% zoom at 1280x800: no clipped text or lost actions.
+
+## Phase 6 patterns
+- Focus moves to the new view's `h1` on every view change (`Workspace`), to the `FeedbackPanel` after an
+  exercise answer, and to the result heading after a quiz submit. Dialogs trap focus and restore it.
+- The lesson action is soft-disabled (`aria-disabled`, still focusable) with its reason in text until the
+  video is watched or the transcript read to its end (`TranscriptPanel.onReachedEnd`).
+- Achievement and settings dialogs: the title is the announcement; motion only when reduced motion is off.
+- Lock state is icon + text + colour; the unlock rule always names the module that blocks it.

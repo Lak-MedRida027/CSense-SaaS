@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { Alert } from '../../components/Alert';
 import { BadgeGrid } from '../../components/BadgeGrid';
 import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
@@ -11,26 +12,11 @@ import { ProgressBar } from '../../components/ProgressBar';
 import { ProgressRing } from '../../components/ProgressRing';
 import { Spinner } from '../../components/Spinner';
 import { XPBar } from '../../components/XPBar';
-import {
-  ArrowRight,
-  Award,
-  BookOpen,
-  Clock,
-  GraduationCap,
-  LayoutDashboard,
-  Lock,
-  Play,
-} from '../../icons';
+import { ArrowRight, BookOpen, Clock, GraduationCap, Lock, Play } from '../../icons';
 import { AppShell } from '../../layouts/AppShell';
+import { EMPLOYEE_NAV } from '../employeeNav';
 import type { EmployeeDashboardScreenProps } from './EmployeeDashboard.types';
 import styles from './EmployeeDashboard.module.css';
-
-const NAV = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { id: 'modules', label: 'Modules', icon: BookOpen },
-  { id: 'badges', label: 'Badges', icon: Award },
-  { id: 'final', label: 'Final assessment', icon: GraduationCap },
-] as const;
 
 const fmt = new Intl.NumberFormat('en');
 
@@ -44,6 +30,8 @@ export function EmployeeDashboardScreen({
   badges,
   finalAssessment,
   state = 'ready',
+  errorDescription,
+  notice,
   onRetry,
   onOpenModule,
   onOpenBadge,
@@ -70,7 +58,20 @@ export function EmployeeDashboardScreen({
       </div>
     );
   } else if (state === 'error') {
-    content = <ErrorState description="Your dashboard could not be loaded." onRetry={onRetry} />;
+    content = (
+      <ErrorState
+        description={errorDescription ?? 'Your dashboard could not be loaded.'}
+        onRetry={onRetry}
+      />
+    );
+  } else if (state === 'empty') {
+    content = (
+      <EmptyState
+        icon={BookOpen}
+        title="No training has been assigned yet"
+        description="Your security team will add modules."
+      />
+    );
   } else {
     content = (
       <div className={styles.grid}>
@@ -197,6 +198,7 @@ export function EmployeeDashboardScreen({
                   : 'Questions covering every module.'}
               </p>
             )}
+            {finalAssessment.note && <p>{finalAssessment.note}</p>}
             <Button
               variant="secondary"
               iconEnd={ArrowRight}
@@ -213,7 +215,7 @@ export function EmployeeDashboardScreen({
 
   return (
     <AppShell
-      navItems={NAV}
+      navItems={EMPLOYEE_NAV}
       currentNavId="dashboard"
       onNavigate={onNavigate}
       user={{ name: employee.name, roleLabel: 'Employee' }}
@@ -221,6 +223,7 @@ export function EmployeeDashboardScreen({
       onSignOut={onSignOut}
       title={firstTime ? `Welcome, ${firstName}` : `Good to see you, ${firstName}`}
     >
+      {notice && <Alert tone={notice.tone} title={notice.text} announce={false} />}
       {content}
     </AppShell>
   );

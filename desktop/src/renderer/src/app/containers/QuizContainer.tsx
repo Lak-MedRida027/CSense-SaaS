@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AssessmentSessionDTO } from '../../../../shared/dto';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { AssessmentSessionDTO, AttemptResultDTO } from '../../../../shared/dto';
 import type { SecureSessionView } from '../../../../shared/ipcChannels';
 import { Alert } from '../../components/Alert';
 import type { LockdownState } from '../../components/LockdownBanner';
@@ -9,7 +9,11 @@ import {
   type QuizQuestionData,
   type QuizResultData,
 } from '../../screens/Quiz';
-import { useAppState, useAppStore, useBridge } from '../AppProvider';
+import { useAppState, useAppStore, useBridge, useLearningStore } from '../AppProvider';
+import { detectAchievements } from '../learning/achievements';
+import { toQuizReview, type QuizReviewData } from '../learning/mappers';
+import type { QuizTarget } from '../learning/quizTarget';
+import { useWorkspace } from '../WorkspaceContext';
 import {
   RESTARTED_MESSAGE,
   abandonedResult,
@@ -21,22 +25,7 @@ import {
 } from '../messages';
 import styles from './QuizContainer.module.css';
 
-export type QuizTarget =
-  | {
-      kind: 'quiz';
-      moduleId: string;
-      title: string;
-      questionCount: number;
-      passingScore: number;
-      attemptNumber: number;
-    }
-  | {
-      kind: 'final';
-      title: string;
-      questionCount: number;
-      passingScore: number;
-      attemptNumber: number;
-    };
+export type { QuizTarget };
 
 /** What the secure session reports about itself (used when resuming after a renderer reload). */
 export function targetFromSession(s: AssessmentSessionDTO): QuizTarget {
@@ -84,11 +73,26 @@ export function QuizContainer({
   target: QuizTarget;
   /** Set when main still holds a session after a renderer crash/reload. */
   resume?: SecureSessionView | null | undefined;
-  onDone: () => void;
+  onDone: (passed: boolean) => void;
 }) {
   const bridge = useBridge();
   const store = useAppStore();
+  const learning = useLearningStore();
+  const ws = useWorkspace();
   const { lockdown, violation } = useAppState();
+  const [attemptResult, setAttemptResult] = useState<AttemptResultDTO | null>(null);
+  const [review, setReview] = useState<QuizReviewData | null>(null);
+  // XP before the attempt, for level-up detection (null when the dashboard never loaded).
+  const xpBefore = useRef(learning.getState().xp.data);
+  const achievementsDone = useRef<Promise<void> | null>(null);
+  // The intro is outside lockdown: make sure the pre-attempt XP is known (first launch via onboarding
+  // never loaded it), because content reads are closed once the quiz starts.
+  useEffect(() => {
+    if (xpBefore.current) return;
+    void learning.refresh(['xp']).then(() => {
+      xpBefore.current ??= learning.getState().xp.data;
+    });
+  }, [learning]);
 
   const [phase, setPhase] = useState<QuizPhase>(resume ? 'answering' : 'intro');
   const [starting, setStarting] = useState(false);
@@ -131,6 +135,26 @@ export function QuizContainer({
       reason === 'crash' ||
       reason === 'hard_cap' ||
       reason === 'session_expired');
+
+  // Module content and `me.*` are closed while locked down (ADR 0020), so the post-attempt refresh
+  // waits for lockdown to end. Passing queues one achievement dialog for the dashboard (plan 7.5).
+  useEffect(() => {
+    if (!attemptResult || lockdown.state !== 'inactive' || achievementsDone.current) return;
+    const result = attemptResult;
+    achievementsDone.current = (async () => {
+      await learning.refresh(['overview', 'xp', 'badges']);
+      if (result.passed) {
+        ws.queueAchievements(
+          detectAchievements(xpBefore.current, learning.getState().xp.data, result),
+        );
+      }
+    })();
+  }, [attemptResult, lockdown.state, learning, ws]);
+
+  const finish = useCallback(async () => {
+    await achievementsDone.current?.catch(() => undefined);
+    onDone(attemptResult?.passed === true);
+  }, [attemptResult, onDone]);
 
   const questions = useMemo(
     () => (session ? mapQuestions(session) : introPlaceholders(target.questionCount)),
@@ -178,6 +202,7 @@ export function QuizContainer({
         }),
       });
       if (res.ok) {
+        setAttemptResult(res.data);
         setResult(toQuizResult(res.data, target.title));
         setPhase('result');
       } else if (
@@ -203,6 +228,7 @@ export function QuizContainer({
     try {
       const res = await bridge.assessment.exit({ sessionId: session.sessionId });
       if (res.ok && res.data.attempt) {
+        setAttemptResult(res.data.attempt);
         setResult(toQuizResult(res.data.attempt, target.title));
       } else {
         setResult(abandonedResult(session.questions.length));
@@ -222,6 +248,7 @@ export function QuizContainer({
         : lockdown.state;
 
   const shownPhase: QuizPhase = starting ? 'answering' : mainEnded ? 'result' : phase;
+  const canReview = (attemptResult?.review.length ?? 0) > 0 && !mainEnded;
   const shownResult = mainEnded ? abandonedResult(session.questions.length) : result;
   const notice = error ?? (mainEnded ? endedMessage(reason) : ended);
 
@@ -238,14 +265,24 @@ export function QuizContainer({
         phase={shownPhase}
         lockdownState={lockdownState}
         lockdownWarning={violationMessage(violation) ?? restartedNotice}
-        questions={questions}
-        answers={answers}
+        questions={phase === 'review' && review ? review.questions : questions}
+        answers={phase === 'review' && review ? review.answers : answers}
+        startBlocked={target.startBlocked}
         currentIndex={index}
         passMarkPercent={target.passingScore}
         attemptNumber={target.attemptNumber}
         result={shownResult}
         submitting={submitting}
-        continueLabel="Back to training"
+        continueLabel="Continue"
+        backLabel={target.kind === 'final' ? 'Back to final assessment' : 'Back to module'}
+        onReviewAnswers={
+          canReview && attemptResult
+            ? () => {
+                setReview(toQuizReview(attemptResult));
+                setPhase('review');
+              }
+            : undefined
+        }
         onRequestStartLockdown={() => {
           void start();
         }}
@@ -269,14 +306,22 @@ export function QuizContainer({
           setPhase('result');
         }}
         onRetry={() => {
+          achievementsDone.current = null;
+          xpBefore.current = learning.getState().xp.data;
+          setAttemptResult(null);
+          setReview(null);
           setSession(null);
           setResult(undefined);
           setEnded(undefined);
           setError(undefined);
           setPhase('intro');
         }}
-        onContinue={onDone}
-        onBackToModule={onDone}
+        onContinue={() => {
+          void finish();
+        }}
+        onBackToModule={() => {
+          onDone(false);
+        }}
       />
     </>
   );

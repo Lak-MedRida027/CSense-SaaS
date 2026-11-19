@@ -117,6 +117,14 @@ export class GateController {
     return this.phase === 'released';
   }
 
+  /**
+   * A journey call came back `ACCESS_RESTRICTED` (D6-19): re-lock into the gate, which re-checks the
+   * status and lands in the restricted state. Deferred while a quiz is locked down (as every relock).
+   */
+  noteRestricted(): void {
+    if (this.phase === 'released') this.relock('api_restricted');
+  }
+
   getView(): GateView {
     const s = this.status;
     return {

@@ -96,7 +96,7 @@ for (const theme of ['dark', 'light'] as const) {
     const hrefs = await page
       .locator('a[href^="#/preview/"]')
       .evaluateAll((links) => links.map((a) => a.getAttribute('href') ?? ''));
-    expect(hrefs.length).toBeGreaterThanOrEqual(7);
+    expect(hrefs.length).toBeGreaterThanOrEqual(60);
     for (const href of hrefs) {
       await goto(`${href}?theme=${theme}`);
       await expect(page.locator('html')).toHaveAttribute('data-theme', theme);

@@ -1,0 +1,13 @@
+{
+  "v": 1,
+  "entries": {
+    "placeholder/m1.mp4": { "file": "placeholder-lesson.webm", "type": "video/webm" },
+    "placeholder/m1.vtt": { "file": "m1.vtt", "type": "text/vtt" },
+    "placeholder/m3.mp4": { "file": "placeholder-lesson.webm", "type": "video/webm" },
+    "placeholder/m3.vtt": { "file": "m3.vtt", "type": "text/vtt" },
+    "placeholder/m5.mp4": { "file": "placeholder-lesson.webm", "type": "video/webm" },
+    "placeholder/m5.vtt": { "file": "m5.vtt", "type": "text/vtt" },
+    "placeholder/m7.mp4": { "file": "placeholder-lesson.webm", "type": "video/webm" },
+    "placeholder/m7.vtt": { "file": "m7.vtt", "type": "text/vtt" }
+  }
+}

@@ -8,6 +8,11 @@ export interface QuizOptionReview {
   isCorrect: boolean;
   /** The user picked this option. */
   isSelected: boolean;
+  /**
+   * The picked option was graded correct even though the key is not revealed (quizzes reveal the
+   * correct option only after a pass, D3-13). Styles the pick as correct without a "Correct answer" tag.
+   */
+  selectedCorrect?: boolean | undefined;
 }
 
 export interface QuizOptionProps {
@@ -42,7 +47,7 @@ export function QuizOption({
 }: QuizOptionProps) {
   const id = useId();
   const reviewTone = review
-    ? review.isCorrect
+    ? review.isCorrect || (review.isSelected && review.selectedCorrect)
       ? 'success'
       : review.isSelected
         ? 'critical'
@@ -81,7 +86,7 @@ export function QuizOption({
         <span className={styles.tags}>
           {review.isSelected && (
             <span className={styles.tag}>
-              {review.isCorrect ? (
+              {review.isCorrect || review.selectedCorrect ? (
                 <CircleCheck aria-hidden="true" size={14} />
               ) : (
                 <CircleX aria-hidden="true" size={14} />

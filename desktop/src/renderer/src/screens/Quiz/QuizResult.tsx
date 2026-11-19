@@ -8,6 +8,7 @@ type QuizResultProps = Pick<
   | 'result'
   | 'passMarkPercent'
   | 'continueLabel'
+  | 'backLabel'
   | 'onReviewAnswers'
   | 'onRetry'
   | 'onContinue'
@@ -20,6 +21,7 @@ export function QuizResult({
   result,
   passMarkPercent,
   continueLabel,
+  backLabel,
   onReviewAnswers,
   onRetry,
   onContinue,
@@ -42,6 +44,7 @@ export function QuizResult({
             onRetry={onRetry}
             onContinue={onContinue}
             continueLabel={continueLabel}
+            backLabel={backLabel}
             onBack={onBackToModule}
           />
         ) : (

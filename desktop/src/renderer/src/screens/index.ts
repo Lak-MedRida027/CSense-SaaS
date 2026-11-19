@@ -5,4 +5,7 @@ export * from './ModulePlayer';
 export * from './Quiz';
 export * from './EmployeeDashboard';
 export * from './AdminDashboard';
-export * from './TrainingHome';
+export * from './Modules';
+export * from './Badges';
+export * from './FinalAssessment';
+export * from './AdminHome';

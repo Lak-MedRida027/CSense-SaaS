@@ -91,3 +91,14 @@ is implemented and shown in the styleguide gallery.
 - `AppShell`: skip link, sidebar `nav` (current page bar + tint + weight), page `h1`, `main`.
 - `GateShell`: chrome-free full-screen frame for gate, login and onboarding.
 - `LockdownShell`: banner + exit confirmation; only renders quiz content when lockdown is `active`.
+
+## Phase 6 additions
+| Component | Purpose |
+|---|---|
+| `LessonText` | Plain authored text to paragraphs (split on blank lines). Never HTML (`react/no-danger`). |
+| `AchievementDialog` | One dialog for a new badge, a level-up and "training complete". Reduced motion honoured. |
+| `DisplaySettingsDialog` | Theme, reduce motion and text size; same controls as the last onboarding step. |
+
+Changed (additive props): `InteractiveExercise` (`pending`, `correctChoiceId`, `feedback.title`),
+`VideoPlayerFrame` (`onError`), `TranscriptPanel` (`onReachedEnd`), `QuizOption`/`QuizQuestion` review
+(`selectedCorrect`, `answeredCorrectly`: graded pick without revealing the key).

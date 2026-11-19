@@ -145,3 +145,28 @@ export const finalAssessmentFixture: QuizScreenProps = {
   currentIndex: 3,
   answers: { f1: 'b', f2: 'c', f3: 'b' },
 };
+
+/** Intro that cannot start now (cooldown or already passed). */
+export const quizIntroBlockedFixture: QuizScreenProps = {
+  ...quizIntroFixture,
+  attemptNumber: 3,
+  startBlocked: { reason: 'You can try again at 14:05.' },
+};
+
+/** Result with the review button available (every submitted attempt). */
+export const quizFailedWithReviewFixture: QuizScreenProps = {
+  ...quizFailedFixture,
+  onReviewAnswers: placeholder,
+};
+
+/** Review after a failed attempt: right/wrong and explanations, but no "Correct answer" tags. */
+export const quizReviewNoKeyFixture: QuizScreenProps = {
+  ...quizFailedFixture,
+  phase: 'review',
+  questions: questions.map((q, i) => ({
+    ...q,
+    correctOptionId: undefined,
+    wasCorrect: i % 2 === 0,
+    explanation: 'A short explanation of why this answer is right or wrong.',
+  })),
+};

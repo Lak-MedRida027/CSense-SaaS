@@ -1,5 +1,6 @@
 /** Barrel for the CSense component library. All components are presentational (props only). */
 export * from './AchievementBadge';
+export * from './AchievementDialog';
 export * from './Alert';
 export * from './AttemptsIndicator';
 export * from './Avatar';
@@ -12,6 +13,7 @@ export * from './Checkbox';
 export * from './ConfirmDialog';
 export * from './DataTable';
 export * from './Dialog';
+export * from './DisplaySettingsDialog';
 export * from './EmptyState';
 export * from './ErrorState';
 export * from './EscalationList';
@@ -20,6 +22,7 @@ export * from './FilterBar';
 export * from './FocusTrap';
 export * from './IconButton';
 export * from './InteractiveExercise';
+export * from './LessonText';
 export * from './LevelChip';
 export * from './LevelLadder';
 export * from './Link';

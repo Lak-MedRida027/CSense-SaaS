@@ -4,6 +4,7 @@
  *
  * Order matters for the gate: the window is locked and covered BEFORE any network call is made.
  */
+import { promises as fsp } from 'node:fs';
 import { join } from 'node:path';
 import { BrowserWindow, Menu, app, ipcMain, session } from 'electron';
 import {
@@ -34,6 +35,8 @@ import { IpcRegistry } from './ipc/registry';
 import { AppLock } from './lock/appLock';
 import { CoverManager } from './lock/covers';
 import { createFileLogger } from './log';
+import { EMPTY_MANIFEST, loadManifest, servableFiles } from './media/manifest';
+import { resolveMediaUrl, type MediaManifest } from './media/mediaResolver';
 import { LockdownController } from './lockdown/lockdownController';
 import { ReminderScheduler } from './notifications/reminderScheduler';
 import {
@@ -91,7 +94,34 @@ export function bootstrap(): void {
     };
 
     denyCertificateErrors(log);
-    handleAppProtocol(join(__dirname, '../renderer'));
+    // Bundled lesson media (ADR 0019): allowlisted by the manifest, served under app://csense/media/.
+    const mediaRoot = isPackaged
+      ? join(process.resourcesPath, 'media')
+      : // out/main -> desktop/resources/media (not getAppPath(): it differs when launched by file).
+        join(__dirname, '../../resources/media');
+    let mediaManifest: MediaManifest = EMPTY_MANIFEST;
+    const mediaFiles = new Map<string, string>();
+    if (config.media.error) log.warn('media.config_refused', { reason: config.media.error });
+    void (
+      config.media.baseUrl === null
+        ? Promise.resolve(EMPTY_MANIFEST)
+        : loadManifest(
+            mediaRoot,
+            {
+              readFile: (p, enc) => fsp.readFile(p, enc),
+              exists: (p) =>
+                fsp.access(p).then(
+                  () => true,
+                  () => false,
+                ),
+            },
+            log,
+          )
+    ).then((m) => {
+      mediaManifest = m;
+      for (const [file, type] of servableFiles(m)) mediaFiles.set(file, type);
+    });
+    handleAppProtocol(join(__dirname, '../renderer'), { root: mediaRoot, files: mediaFiles });
     hardenUiSession(session.defaultSession, hardening);
     app.on('web-contents-created', (_e, contents) => {
       hardenWebContents(contents, hardening);
@@ -268,7 +298,18 @@ export function bootstrap(): void {
       },
     });
     registry.register(
-      buildHandlers({ config, api, session: sessionSvc, gate, lockdown, reminders }),
+      buildHandlers({
+        config,
+        api,
+        session: sessionSvc,
+        gate,
+        lockdown,
+        reminders,
+        resolveMedia: (url) =>
+          config.media.baseUrl === null
+            ? null
+            : resolveMediaUrl(url, { baseUrl: config.media.baseUrl, manifest: mediaManifest }),
+      }),
       IPC_CHANNEL_NAMES,
     );
 

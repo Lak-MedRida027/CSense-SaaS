@@ -10,7 +10,10 @@ import {
   GateMisconfiguredScreen,
   GateOfflineScreen,
   SecurityGateScreen,
-  TrainingHomeScreen,
+  ModulesScreen,
+  BadgesScreen,
+  FinalAssessmentScreen,
+  AdminHomeScreen,
 } from '../../screens';
 import * as admin from '../../screens/AdminDashboard/AdminDashboard.fixtures';
 import * as employee from '../../screens/EmployeeDashboard/EmployeeDashboard.fixtures';
@@ -20,7 +23,9 @@ import * as onboarding from '../../screens/Onboarding/Onboarding.fixtures';
 import * as quiz from '../../screens/Quiz/Quiz.fixtures';
 import * as gateStates from '../../screens/SecurityGate/GateStates.fixtures';
 import * as gate from '../../screens/SecurityGate/SecurityGate.fixtures';
-import * as home from '../../screens/TrainingHome/TrainingHome.fixtures';
+import * as modulesFx from '../../screens/Modules/Modules.fixtures';
+import * as badgesFx from '../../screens/Badges/Badges.fixtures';
+import * as finalFx from '../../screens/FinalAssessment/FinalAssessment.fixtures';
 
 export interface ScreenVariant {
   id: string;
@@ -83,32 +88,6 @@ export const SCREENS: readonly ScreenEntry[] = [
     ],
   },
   {
-    id: 'training-home',
-    label: 'Training home (Phase 5, temporary)',
-    variants: [
-      {
-        id: 'default',
-        label: 'Modules',
-        render: () => <TrainingHomeScreen {...home.trainingHomeFixture} />,
-      },
-      {
-        id: 'offline',
-        label: 'Released offline',
-        render: () => <TrainingHomeScreen {...home.trainingHomeOfflineFixture} />,
-      },
-      {
-        id: 'error',
-        label: 'Error',
-        render: () => <TrainingHomeScreen {...home.trainingHomeErrorFixture} />,
-      },
-      {
-        id: 'admin',
-        label: 'Administrator',
-        render: () => <TrainingHomeScreen {...home.trainingHomeAdminFixture} />,
-      },
-    ],
-  },
-  {
     id: 'login',
     label: 'Login',
     variants: [
@@ -145,6 +124,56 @@ export const SCREENS: readonly ScreenEntry[] = [
         id: 'interactive',
         label: 'Interactive',
         render: () => <ModulePlayerScreen {...player.modulePlayerInteractiveFixture} />,
+      },
+      {
+        id: 'video-ready',
+        label: 'Video, can continue',
+        render: () => <ModulePlayerScreen {...player.modulePlayerVideoReadyFixture} />,
+      },
+      {
+        id: 'video-unavailable',
+        label: 'Video unavailable, transcript',
+        render: () => <ModulePlayerScreen {...player.modulePlayerVideoUnavailableFixture} />,
+      },
+      {
+        id: 'interactive-lesson',
+        label: 'Interactive lesson',
+        render: () => <ModulePlayerScreen {...player.modulePlayerInteractiveLessonFixture} />,
+      },
+      {
+        id: 'practice-wrong',
+        label: 'Practice, wrong answer',
+        render: () => <ModulePlayerScreen {...player.modulePlayerInteractiveWrongFixture} />,
+      },
+      {
+        id: 'practice-pending',
+        label: 'Practice, saving',
+        render: () => <ModulePlayerScreen {...player.modulePlayerInteractivePendingFixture} />,
+      },
+      {
+        id: 'completed',
+        label: 'Completed module',
+        render: () => <ModulePlayerScreen {...player.modulePlayerCompletedFixture} />,
+      },
+      {
+        id: 'loading',
+        label: 'Loading',
+        render: () => <ModulePlayerScreen {...player.modulePlayerLoadingFixture} />,
+      },
+      {
+        id: 'error',
+        label: 'Error',
+        render: () => <ModulePlayerScreen {...player.modulePlayerErrorFixture} />,
+      },
+      {
+        id: 'locked',
+        label: 'Locked',
+        render: () => <ModulePlayerScreen {...player.modulePlayerLockedFixture} />,
+      },
+      {
+        id: 'not-found',
+        label: 'Not found',
+        render: () => <ModulePlayerScreen {...player.modulePlayerNotFoundFixture} />,
       },
     ],
   },
@@ -194,6 +223,21 @@ export const SCREENS: readonly ScreenEntry[] = [
         label: 'Final assessment',
         render: () => <QuizScreen {...quiz.finalAssessmentFixture} />,
       },
+      {
+        id: 'intro-blocked',
+        label: 'Intro, cannot start',
+        render: () => <QuizScreen {...quiz.quizIntroBlockedFixture} />,
+      },
+      {
+        id: 'failed-review',
+        label: 'Not passed, review available',
+        render: () => <QuizScreen {...quiz.quizFailedWithReviewFixture} />,
+      },
+      {
+        id: 'review-no-key',
+        label: 'Review without answer key',
+        render: () => <QuizScreen {...quiz.quizReviewNoKeyFixture} />,
+      },
     ],
   },
   {
@@ -215,6 +259,21 @@ export const SCREENS: readonly ScreenEntry[] = [
         label: 'Loading',
         render: () => <EmployeeDashboardScreen {...employee.employeeDashboardLoadingFixture} />,
       },
+      {
+        id: 'empty',
+        label: 'Empty',
+        render: () => <EmployeeDashboardScreen {...employee.employeeDashboardEmptyFixture} />,
+      },
+      {
+        id: 'offline',
+        label: 'Offline error',
+        render: () => <EmployeeDashboardScreen {...employee.employeeDashboardOfflineFixture} />,
+      },
+      {
+        id: 'complete',
+        label: 'Training complete',
+        render: () => <EmployeeDashboardScreen {...employee.employeeDashboardCompleteFixture} />,
+      },
     ],
   },
   {
@@ -235,6 +294,110 @@ export const SCREENS: readonly ScreenEntry[] = [
         id: 'phishing-flag',
         label: 'Phishing flag on',
         render: () => <AdminDashboardScreen {...admin.adminDashboardPhishingFlagFixture} />,
+      },
+    ],
+  },
+  {
+    id: 'modules',
+    label: 'Modules page',
+    variants: [
+      {
+        id: 'default',
+        label: 'Modules',
+        render: () => <ModulesScreen {...modulesFx.modulesFixture} />,
+      },
+      {
+        id: 'loading',
+        label: 'Loading',
+        render: () => <ModulesScreen {...modulesFx.modulesLoadingFixture} />,
+      },
+      {
+        id: 'empty',
+        label: 'Empty',
+        render: () => <ModulesScreen {...modulesFx.modulesEmptyFixture} />,
+      },
+      {
+        id: 'error',
+        label: 'Offline error',
+        render: () => <ModulesScreen {...modulesFx.modulesErrorFixture} />,
+      },
+    ],
+  },
+  {
+    id: 'badges',
+    label: 'Badges page',
+    variants: [
+      {
+        id: 'default',
+        label: 'Badges',
+        render: () => <BadgesScreen {...badgesFx.badgesFixture} />,
+      },
+      {
+        id: 'loading',
+        label: 'Loading',
+        render: () => <BadgesScreen {...badgesFx.badgesLoadingFixture} />,
+      },
+      {
+        id: 'empty',
+        label: 'Empty',
+        render: () => <BadgesScreen {...badgesFx.badgesEmptyFixture} />,
+      },
+      {
+        id: 'error',
+        label: 'Error',
+        render: () => <BadgesScreen {...badgesFx.badgesErrorFixture} />,
+      },
+    ],
+  },
+  {
+    id: 'final-assessment',
+    label: 'Final assessment entry',
+    variants: [
+      {
+        id: 'locked',
+        label: 'Locked',
+        render: () => <FinalAssessmentScreen {...finalFx.finalLockedFixture} />,
+      },
+      {
+        id: 'available',
+        label: 'Available',
+        render: () => <FinalAssessmentScreen {...finalFx.finalAvailableFixture} />,
+      },
+      {
+        id: 'cooldown',
+        label: 'Cooldown',
+        render: () => <FinalAssessmentScreen {...finalFx.finalCooldownFixture} />,
+      },
+      {
+        id: 'completed',
+        label: 'Completed',
+        render: () => <FinalAssessmentScreen {...finalFx.finalCompletedFixture} />,
+      },
+      {
+        id: 'none',
+        label: 'Not configured',
+        render: () => <FinalAssessmentScreen {...finalFx.finalNoneFixture} />,
+      },
+      {
+        id: 'loading',
+        label: 'Loading',
+        render: () => <FinalAssessmentScreen {...finalFx.finalLoadingFixture} />,
+      },
+      {
+        id: 'error',
+        label: 'Error',
+        render: () => <FinalAssessmentScreen {...finalFx.finalErrorFixture} />,
+      },
+    ],
+  },
+  {
+    id: 'admin-home',
+    label: 'Administrator home',
+    variants: [
+      {
+        id: 'default',
+        label: 'Placeholder',
+        render: () => <AdminHomeScreen name="Sam Admin" onSignOut={() => undefined} />,
       },
     ],
   },

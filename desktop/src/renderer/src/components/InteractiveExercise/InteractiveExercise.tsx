@@ -14,6 +14,8 @@ export interface ExerciseChoice {
 export interface ExerciseFeedback {
   correct: boolean;
   explanation: ReactNode;
+  /** Overrides the default "Correct" / "Incorrect" heading, e.g. "Not quite". */
+  title?: string | undefined;
 }
 
 export interface InteractiveExerciseProps {
@@ -26,6 +28,10 @@ export interface InteractiveExerciseProps {
   artifact?: ReactNode | undefined;
   choices: readonly ExerciseChoice[];
   selectedChoiceId: string | null;
+  /** The right answer, known once the server has graded this exercise: tagged "Correct answer". */
+  correctChoiceId?: string | undefined;
+  /** An answer is being saved: choices are disabled and the region is busy. */
+  pending?: boolean | undefined;
   /**
    * Feedback from the engine once the user answers. When present, choices lock and the
    * explanation is shown immediately (focus moves to it).
@@ -48,6 +54,8 @@ export function InteractiveExercise({
   artifact,
   choices,
   selectedChoiceId,
+  correctChoiceId,
+  pending = false,
   feedback,
   onAnswer,
   onNext,
@@ -57,7 +65,7 @@ export function InteractiveExercise({
   const name = useId();
   const answered = feedback !== undefined;
   return (
-    <div className={cx(styles.root, className)}>
+    <div className={cx(styles.root, className)} aria-busy={pending || undefined}>
       <p className={styles.counter}>
         Scenario {scenarioNumber} of {totalScenarios}
       </p>
@@ -74,12 +82,23 @@ export function InteractiveExercise({
               label={c.text}
               checked={selectedChoiceId === c.id}
               onSelect={onAnswer}
-              disabled={answered}
+              disabled={answered || pending}
+              review={
+                answered && correctChoiceId !== undefined
+                  ? { isCorrect: c.id === correctChoiceId, isSelected: c.id === selectedChoiceId }
+                  : undefined
+              }
             />
           ))}
         </div>
       </fieldset>
-      {feedback && <FeedbackPanel correct={feedback.correct} explanation={feedback.explanation} />}
+      {feedback && (
+        <FeedbackPanel
+          correct={feedback.correct}
+          explanation={feedback.explanation}
+          title={feedback.title}
+        />
+      )}
       <div className={styles.actions}>
         <Button
           iconEnd={ArrowRight}

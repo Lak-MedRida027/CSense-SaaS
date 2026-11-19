@@ -7,11 +7,15 @@ export interface BackendInfo {
   baseUrl: string;
   origin: string;
   accounts: Record<
-    'admin' | 'admin2' | 'gate-pass' | 'gate-fail' | 'quiz',
+    'admin' | 'admin2' | 'gate-pass' | 'gate-fail' | 'quiz' | 'journey',
     { email: string; password: string }
   >;
   gateKey: Record<string, number>;
   gateKeyText: Record<string, string>;
+  /** Question text to the index of the correct option, for every module quiz and the final pool. */
+  quizKey: Record<string, number>;
+  /** Exercise prompt to the index of the correct option. */
+  exerciseKey: Record<string, number>;
 }
 
 /** Playwright runs from desktop/ (where playwright.config.mts lives). */

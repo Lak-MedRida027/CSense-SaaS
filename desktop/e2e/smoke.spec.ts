@@ -22,7 +22,7 @@ test('launches exactly one CSense window, locked, from the app:// origin, showin
   expect(st).toMatchObject({ kiosk: true, alwaysOnTop: true, closable: false });
 });
 
-test('renderer has no Node.js access and the bridge is exactly the v1 surface', async () => {
+test('renderer has no Node.js access and the bridge is exactly the v1 surface (22 invoke channels)', async () => {
   const info = await s.page.evaluate(() => {
     const g = globalThis as unknown as Record<string, unknown>;
     const b = g.csense as Record<string, unknown>;
@@ -37,6 +37,7 @@ test('renderer has no Node.js access and the bridge is exactly the v1 surface', 
       gate: methods('gate'),
       assessment: methods('assessment'),
       learning: methods('learning'),
+      me: methods('me'),
       events: methods('events'),
       version: b.bridgeVersion,
     };
@@ -51,6 +52,7 @@ test('renderer has no Node.js access and the bridge is exactly the v1 surface', 
     'gate',
     'assessment',
     'learning',
+    'me',
     'events',
   ]);
   expect(info.version).toBe(1);
@@ -64,7 +66,16 @@ test('renderer has no Node.js access and the bridge is exactly the v1 surface', 
     'continueOffline',
   ]);
   expect(info.assessment).toEqual(['startSecure', 'resume', 'submit', 'exit']);
-  expect(info.learning).toEqual(['getOverview', 'getQuizOverview']);
+  expect(info.learning).toEqual([
+    'getOverview',
+    'getQuizOverview',
+    'getModule',
+    'startModule',
+    'answerExercise',
+    'completeContent',
+    'getFinalTestOverview',
+  ]);
+  expect(info.me).toEqual(['getXp', 'getBadges', 'completeOnboarding']);
   expect(info.events).toEqual(['subscribe']);
 });
 

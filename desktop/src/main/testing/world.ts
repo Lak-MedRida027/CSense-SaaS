@@ -102,6 +102,11 @@ export const restrictedStatus: GateStatusDTO = {
   restricted: { referenceId: 'GATE-20261110-ABC123', since: '2026-11-10T09:00:00.000Z' },
 };
 
+/** Test hook: the onboarding state `loginBody` reports for employees (`undefined` = field absent). */
+export const loginOnboarding: { value: { outcome: string; at: string } | null | undefined } = {
+  value: undefined,
+};
+
 export function loginBody(n = 1, role: 'employee' | 'administrator' = 'employee') {
   return {
     tokenType: 'Bearer',
@@ -114,6 +119,9 @@ export function loginBody(n = 1, role: 'employee' | 'administrator' = 'employee'
       name: 'Test User',
       role,
       ...(role === 'employee' ? { level: 'Apprentice', totalXP: 0 } : {}),
+      ...(role === 'employee' && loginOnboarding.value !== undefined
+        ? { onboarding: loginOnboarding.value }
+        : {}),
     },
   };
 }

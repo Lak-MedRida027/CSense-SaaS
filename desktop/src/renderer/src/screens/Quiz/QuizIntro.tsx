@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { Alert } from '../../components/Alert';
 import { Button } from '../../components/Button';
 import { ArrowLeft, ClipboardCheck, Lock, ShieldCheck } from '../../icons';
 import type { QuizScreenProps } from './Quiz.types';
@@ -10,6 +11,8 @@ type QuizIntroProps = Pick<
   | 'questions'
   | 'passMarkPercent'
   | 'attemptNumber'
+  | 'startBlocked'
+  | 'starting'
   | 'onRequestStartLockdown'
   | 'onBackToModule'
 >;
@@ -20,10 +23,13 @@ export function QuizIntro({
   questions,
   passMarkPercent,
   attemptNumber,
+  startBlocked,
+  starting = false,
   onRequestStartLockdown,
   onBackToModule,
 }: QuizIntroProps) {
   const headingId = useId();
+  const blockedId = useId();
   return (
     <main className={styles.introPage}>
       <section className={styles.introCard} aria-labelledby={headingId}>
@@ -52,13 +58,25 @@ export function QuizIntro({
             </p>
           </div>
         </div>
+        {startBlocked && (
+          <div id={blockedId}>
+            <Alert tone="info" title={startBlocked.reason} announce={false} />
+          </div>
+        )}
         <div className={styles.introActions}>
           {onBackToModule && (
             <Button variant="ghost" iconStart={ArrowLeft} onClick={onBackToModule}>
               Back to module
             </Button>
           )}
-          <Button size="lg" iconStart={Lock} onClick={onRequestStartLockdown}>
+          <Button
+            size="lg"
+            iconStart={Lock}
+            loading={starting}
+            softDisabled={startBlocked !== undefined}
+            aria-describedby={startBlocked ? blockedId : undefined}
+            onClick={onRequestStartLockdown}
+          >
             Start secure quiz
           </Button>
         </div>

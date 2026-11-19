@@ -21,6 +21,8 @@ export interface QuizQuestionProps {
   /** `review` shows the correct answer and explanation (answers are not editable). */
   mode?: 'answer' | 'review' | undefined;
   correctOptionId?: string | undefined;
+  /** Graded result of the pick when the key itself is not shown. */
+  answeredCorrectly?: boolean | undefined;
   explanation?: ReactNode | undefined;
   state?: 'ready' | 'loading' | 'error' | undefined;
   onRetry?: (() => void) | undefined;
@@ -39,6 +41,7 @@ export function QuizQuestion({
   onSelect,
   mode = 'answer',
   correctOptionId,
+  answeredCorrectly,
   explanation,
   state = 'ready',
   onRetry,
@@ -80,6 +83,7 @@ export function QuizQuestion({
                   ? {
                       isCorrect: opt.id === correctOptionId,
                       isSelected: opt.id === selectedOptionId,
+                      selectedCorrect: answeredCorrectly,
                     }
                   : undefined
               }
@@ -92,7 +96,9 @@ export function QuizQuestion({
       )}
       {review && explanation && (
         <FeedbackPanel
-          correct={selectedOptionId !== null && selectedOptionId === correctOptionId}
+          correct={
+            answeredCorrectly ?? (selectedOptionId !== null && selectedOptionId === correctOptionId)
+          }
           explanation={explanation}
           focusOnMount={false}
         />
