@@ -80,6 +80,7 @@ export class SessionService {
 
   /** Server told us the session is gone (revoked, deactivated, refresh rejected). */
   handleEnded(_reason: SessionEndReason): void {
+    this.epochCount++;
     this.user = null;
     this.status = 'signed_out';
     this.notice = 'session_ended';
@@ -164,7 +165,15 @@ export class SessionService {
     return 'signed_out';
   }
 
+  private epochCount = 0;
+
+  /** Increases on every sign-in, sign-out or ended session (identity change). */
+  epoch(): number {
+    return this.epochCount;
+  }
+
   private publish(change: SessionChange): void {
+    this.epochCount++;
     this.deps.emit(this.getView());
     for (const l of [...this.listeners]) l(change);
   }

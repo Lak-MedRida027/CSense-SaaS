@@ -21,7 +21,7 @@ export interface BackendInfo {
 /** Playwright runs from desktop/ (where playwright.config.mts lives). */
 export const RUN_DIR = resolve(process.cwd(), 'e2e/.run');
 export const BACKEND_FILE = resolve(RUN_DIR, 'backend.json');
-const HARNESS = resolve(process.cwd(), '../server/dist/src/testing/e2eServer.js');
+const HARNESS = resolve(process.cwd(), '../server/dist-e2e/src/testing/e2eServer.js');
 const STARTUP_TIMEOUT_MS = 90_000; // covers the first MongoDB binary download
 
 let child: ChildProcess | null = null;

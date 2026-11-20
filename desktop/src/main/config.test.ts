@@ -232,3 +232,15 @@ describe('CFG9-CFG10: media config', () => {
     expect(m.error).toMatch(/bundled/);
   });
 });
+
+describe('IPC aggregate API rate', () => {
+  it('defaults to 5/s, is raisable only when unpackaged, and is bounded', () => {
+    const load = (env: Record<string, string>, isPackaged: boolean) =>
+      loadDesktopConfig({ build: {}, env }, { isPackaged }).ipcApiRatePerSecond;
+    expect(load({}, false)).toBe(5);
+    expect(load({ CSENSE_IPC_API_RATE: '50' }, false)).toBe(50);
+    expect(load({ CSENSE_IPC_API_RATE: '50' }, true)).toBe(5);
+    expect(load({ CSENSE_IPC_API_RATE: '5000' }, false)).toBe(5);
+    expect(load({ CSENSE_IPC_API_RATE: '1' }, false)).toBe(5);
+  });
+});

@@ -69,7 +69,8 @@ export function buildHandlers(deps: HandlerDeps): IpcHandlers {
  * a journey call re-locks the workstation (D6-19). The checks run before any request is made.
  */
 function applyPolicy(deps: HandlerDeps, handlers: IpcHandlers): IpcHandlers {
-  const { gate, lockdown } = deps;
+  const { gate, lockdown, session } = deps;
+  const epoch = (): number => gate.epoch() + lockdown.epoch() + session.epoch();
   const out: Record<string, (input: unknown) => unknown> = {};
   for (const key of Object.keys(handlers) as (keyof IpcHandlers)[]) {
     const policy = IPC_CHANNEL_POLICY[key];
@@ -77,10 +78,21 @@ function applyPolicy(deps: HandlerDeps, handlers: IpcHandlers): IpcHandlers {
     out[key] = async (input: unknown) => {
       if (policy.requiresRelease && !gate.isReleased()) return locked;
       if (policy.duringLockdown === 'deny' && lockdown.isActive()) return closedBook;
+      const before = epoch();
+      const lockdownBefore = lockdown.epoch();
       const res = (await handler(input)) as {
         ok?: boolean;
         error?: { code?: string };
       };
+      // The workstation may have changed state while the request was in flight (a quiz began, the
+      // gate re-locked, the user signed out): the payload must not be delivered (P6-L1, P6-I1).
+      if (policy.requiresRelease) {
+        if (!gate.isReleased()) return locked;
+        if (policy.duringLockdown === 'deny' && lockdown.isActive()) return closedBook;
+        if (epoch() !== before) {
+          return lockdown.epoch() !== lockdownBefore ? closedBook : locked;
+        }
+      }
       if (policy.requiresRelease && res.ok === false && res.error?.code === 'ACCESS_RESTRICTED') {
         gate.noteRestricted();
       }

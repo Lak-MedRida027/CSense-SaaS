@@ -343,6 +343,38 @@ describe('IPC4-IPC7: the invoke pipeline', () => {
     expect(await ipc.invoke('learning.answerExercise', okSender, input)).toBe('handled');
   });
 
+  it('P6-L2: one aggregate bucket (burst 20, 5/s) caps API-calling channels together', async () => {
+    let t = 10_000;
+    const { ipc } = start(undefined, () => t);
+    // Different channels, each far below its own ceiling, still share the budget.
+    const channels = [
+      'learning.getOverview',
+      'me.getXp',
+      'me.getBadges',
+      'learning.getFinalTestOverview',
+    ];
+    let ok = 0;
+    for (let i = 0; i < 30; i++) {
+      const key = channels[i % channels.length] as string;
+      t += 10;
+      const res = await ipc.invoke(key, okSender);
+      if (res === 'handled') ok++;
+    }
+    expect(ok).toBeLessThanOrEqual(21);
+    expect(ok).toBeGreaterThanOrEqual(20);
+    // Channels that do not call the API are unaffected.
+    expect(await ipc.invoke('session.getState', okSender)).toBe('handled');
+    // After a second the bucket has refilled by about 5.
+    t += 1000;
+    let after = 0;
+    for (let i = 0; i < 10; i++) {
+      if ((await ipc.invoke('me.getXp', okSender)) === 'handled') after++;
+      t += 1;
+    }
+    expect(after).toBeGreaterThanOrEqual(4);
+    expect(after).toBeLessThanOrEqual(6);
+  });
+
   it('IPC7: a handler that throws returns INTERNAL with no stack or message', async () => {
     const { ipc, log } = start((k) => {
       if (k === 'gate.continue') throw new Error('secret internals at C:\\src\\x.ts:12');

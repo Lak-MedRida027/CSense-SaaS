@@ -29,6 +29,8 @@ export interface DesktopConfig {
   autoStart: boolean;
   reminders: { firstDelayMinutes: number; intervalMinutes: number; maxPerDay: number };
   devToolsInDev: boolean;
+  /** Aggregate IPC API budget in calls per second (unpackaged runs may raise it for e2e; default 5). */
+  ipcApiRatePerSecond: number;
   externalLinkHosts: readonly string[];
   /**
    * Lesson media (ADR 0019). `baseUrl` is the https prefix authored content URLs must start with;
@@ -148,6 +150,7 @@ export function loadDesktopConfig(
       intervalMinutes: intInRange(build.MAIN_VITE_REMINDER_INTERVAL_MINUTES, 1, 1440, 240),
       maxPerDay: intInRange(build.MAIN_VITE_REMINDER_MAX_PER_DAY, 0, 10, 2),
     },
+    ipcApiRatePerSecond: intInRange(env.CSENSE_IPC_API_RATE, 5, 100, 5),
     devToolsInDev: opts.isPackaged ? false : bool(env.CSENSE_DEVTOOLS, true),
     externalLinkHosts: [],
     media: validateMediaConfig(build.MAIN_VITE_MEDIA_BASE_URL, build.MAIN_VITE_MEDIA_MODE),

@@ -1,6 +1,6 @@
 # ADR 0019: Module media delivery and the "watched" rule
 
-- Status: Proposed 2026-11-10 (Phase 6 plan, docs/architecture/phase-06-plan.md section 5, decisions D6-4, D6-5)
+- Status: Accepted 2026-11-20 (proposed 2026-11-10) (Phase 6 plan, docs/architecture/phase-06-plan.md section 5, decisions D6-4, D6-5)
 - Date: 2026-11-10
 - Deciders: Technical architect, product owner (D6-5), security-tester (review)
 - Builds on: ADR 0006 (content completion is client-reported, not a security boundary), ADR 0013 (CSP, `app://csense`, egress filter), ADR 0014 (main is the only network client)

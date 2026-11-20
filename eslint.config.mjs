@@ -11,6 +11,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-e2e/**',
       '**/out/**',
       '**/release/**',
       '**/.tsbuild/**',
@@ -42,7 +43,12 @@ export default tseslint.config(
 
   // Config files sit outside the TS projects: lint them without type information.
   {
-    files: ['**/*.config.{ts,mjs,js}', 'eslint.config.mjs', 'desktop/scripts/**/*.cjs'],
+    files: [
+      '**/*.config.{ts,mjs,js}',
+      'eslint.config.mjs',
+      'desktop/scripts/**/*.cjs',
+      'server/scripts/**/*.mjs',
+    ],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,

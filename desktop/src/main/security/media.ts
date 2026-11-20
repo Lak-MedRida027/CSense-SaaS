@@ -3,7 +3,8 @@
  * manifest are served; the slice read from disk is bounded; nothing else of the file system is
  * reachable. Tested against a temp directory.
  */
-import { promises as fsp } from 'node:fs';
+import { createReadStream, promises as fsp } from 'node:fs';
+import { Readable } from 'node:stream';
 import { join } from 'node:path';
 import { APP_HOST, APP_SCHEME } from './policy';
 import { MAX_MEDIA_RESPONSE_BYTES, parseByteRange } from './range';
@@ -64,6 +65,15 @@ async function readSlice(
   }
 }
 
+/** At most this many media reads at once; further requests get 503 and the player retries (P6-I3). */
+export const MAX_CONCURRENT_MEDIA_READS = 4;
+let activeReads = 0;
+
+/** Test hook. */
+export function activeMediaReads(): number {
+  return activeReads;
+}
+
 export async function serveMedia(
   request: { url: string; method: string; headers: { get(name: string): string | null } },
   deps: MediaServeDeps,
@@ -94,19 +104,40 @@ export async function serveMedia(
     });
   }
   const head = request.method === 'HEAD';
+  if (!head && activeReads >= MAX_CONCURRENT_MEDIA_READS) {
+    return new Response('Busy', { status: 503, headers: { ...h, 'retry-after': '1' } });
+  }
+  activeReads++;
+  let released = false;
+  const release = (): void => {
+    if (!released) {
+      released = true;
+      activeReads--;
+    }
+  };
   try {
-    if (range.kind === 'full' && size <= MAX_MEDIA_RESPONSE_BYTES) {
-      const body = head ? null : await readSlice(path, 0, size);
-      return new Response(body, {
+    if (head) release();
+    if (range.kind === 'full') {
+      // No Range header: 200 with the whole file, streamed so memory stays flat (P6-I3).
+      if (head)
+        return new Response(null, {
+          status: 200,
+          headers: { ...common, 'content-length': String(size) },
+        });
+      const node = createReadStream(path);
+      node.once('close', release);
+      node.once('error', release);
+      const web = Readable.toWeb(node) as unknown as ReadableStream<Uint8Array>;
+      return new Response(web, {
         status: 200,
         headers: { ...common, 'content-length': String(size) },
       });
     }
-    const start = range.kind === 'partial' ? range.start : 0;
-    const wantedEnd = range.kind === 'partial' ? range.end : size - 1;
-    const end = Math.min(wantedEnd, start + MAX_MEDIA_RESPONSE_BYTES - 1);
+    const start = range.start;
+    const end = Math.min(range.end, start + MAX_MEDIA_RESPONSE_BYTES - 1);
     const length = end - start + 1;
     const body = head ? null : await readSlice(path, start, length);
+    release();
     return new Response(body, {
       status: 206,
       headers: {
@@ -116,6 +147,7 @@ export async function serveMedia(
       },
     });
   } catch {
+    release();
     return notFound();
   }
 }

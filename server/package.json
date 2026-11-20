@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -b",
+    "build": "tsc -b && node scripts/check-no-harness.mjs",
     "build:e2e": "tsc -b tsconfig.e2e.json",
     "start": "node dist/src/index.js",
     "bootstrap:admin": "node dist/src/scripts/bootstrapAdmin.js",

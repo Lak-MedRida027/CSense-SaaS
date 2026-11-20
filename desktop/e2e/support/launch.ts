@@ -30,6 +30,8 @@ export async function launchApp(
     CSENSE_USER_DATA_DIR: userDataDir,
     CSENSE_GATE_POLL_SECONDS: '2',
     CSENSE_DEVTOOLS: '0',
+    // The scripted journey is far faster than a person; production keeps 5/s (ADR 0020).
+    CSENSE_IPC_API_RATE: '50',
     ...opts.env,
   });
   // Re-launching on the same user data right after a force-exit can race the old process's helper

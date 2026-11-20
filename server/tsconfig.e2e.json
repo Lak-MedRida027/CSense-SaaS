@@ -5,9 +5,9 @@
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "rootDir": ".",
-    "outDir": "dist",
-    "tsBuildInfoFile": "dist/.tsbuildinfo.e2e"
+    "outDir": "dist-e2e",
+    "tsBuildInfoFile": "dist-e2e/.tsbuildinfo"
   },
-  "include": ["src/testing", "test/e2eServer.test.ts"],
-  "references": [{ "path": "./tsconfig.json" }, { "path": "../shared" }]
+  "include": ["src", "test/e2eServer.test.ts"],
+  "references": [{ "path": "../shared" }]
 }

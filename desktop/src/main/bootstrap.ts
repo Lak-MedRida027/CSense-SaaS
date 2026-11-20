@@ -286,6 +286,10 @@ export function bootstrap(): void {
     const registry = new IpcRegistry({
       ipc: ipcMain,
       log,
+      aggregateRate: {
+        perSecond: config.ipcApiRatePerSecond,
+        burst: config.ipcApiRatePerSecond * 4,
+      },
       validateSender: (event) => {
         const e = event as Electron.IpcMainInvokeEvent;
         const frame = e.senderFrame;

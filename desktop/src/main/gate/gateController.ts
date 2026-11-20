@@ -113,6 +113,13 @@ export class GateController {
     );
   }
 
+  private epochCount = 0;
+
+  /** Increases each time the workstation leaves the released state. */
+  epoch(): number {
+    return this.epochCount;
+  }
+
   isReleased(): boolean {
     return this.phase === 'released';
   }
@@ -575,6 +582,8 @@ export class GateController {
   }
 
   private setPhase(phase: GatePhase): void {
+    // Leaving `released` (re-lock, restriction, sign-out) bumps the epoch (P6-L1/P6-I1).
+    if (this.phase === 'released' && phase !== 'released') this.epochCount++;
     this.phase = phase;
     if (phase !== 'challenge' && phase !== 'granted' && phase !== 'restricted') {
       if (phase === 'signed_out' || phase === 'boot') this.status = null;
