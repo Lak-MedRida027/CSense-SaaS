@@ -3,6 +3,7 @@ import './styles/global.css';
 import { lazy, StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App';
+import { browserStorage, loadPreferences, savePreferences } from './app/preferences';
 import { ThemeProvider } from './design/theme/ThemeProvider';
 
 const container = document.getElementById('root');
@@ -18,9 +19,18 @@ const DevRoutes =
     ? lazy(() => import('./dev/devRoutes'))
     : null;
 
+// Display preferences are the only renderer storage (plan 6): validated on read, written on change.
+const storage = browserStorage();
+const initialPreferences = loadPreferences(storage);
+
 createRoot(container).render(
   <StrictMode>
-    <ThemeProvider>
+    <ThemeProvider
+      initialPreferences={initialPreferences}
+      onPreferencesChange={(prefs) => {
+        savePreferences(storage, prefs);
+      }}
+    >
       {DevRoutes ? (
         <Suspense fallback={null}>
           <DevRoutes fallback={<App />} />

@@ -1,4 +1,4 @@
-import type { AdministratorDTO, EmployeeDTO, Level, Role } from '@csense/shared';
+import type { AdministratorDTO, EmployeeDTO, Level, OnboardingOutcome, Role } from '@csense/shared';
 
 interface UserLike {
   _id: { toHexString(): string };
@@ -11,6 +11,7 @@ interface UserLike {
   createdAt: Date;
   totalXP?: number | null | undefined;
   level?: Level | null | undefined;
+  onboarding?: { outcome: OnboardingOutcome; at: Date } | null | undefined;
 }
 
 /** Explicit allow-list mapping: passwordHash and any unknown field can never leak. */
@@ -30,6 +31,9 @@ export function toUserDTO(user: UserLike): EmployeeDTO | AdministratorDTO {
       role: 'employee',
       totalXP: user.totalXP ?? 0,
       level: user.level ?? 'Apprentice',
+      onboarding: user.onboarding
+        ? { outcome: user.onboarding.outcome, at: user.onboarding.at.toISOString() }
+        : null,
     };
   }
   return { ...base, role: 'administrator' };

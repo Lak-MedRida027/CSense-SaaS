@@ -43,6 +43,7 @@ const bridge = Object.freeze({
   gate: buildArea('gate'),
   assessment: buildArea('assessment'),
   learning: buildArea('learning'),
+  me: buildArea('me'),
   events,
 }) as unknown as CSenseBridgeV1;
 

@@ -25,6 +25,7 @@ const devCsp: Plugin = {
   transformIndexHtml(html) {
     return html
       .replace("script-src 'self'", "script-src 'self' 'unsafe-inline'")
+      .replace("media-src 'self'", "media-src 'self' app://csense")
       .replace("connect-src 'self'", "connect-src 'self' ws://localhost:* http://localhost:*");
   },
 };

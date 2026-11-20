@@ -57,6 +57,7 @@ describe('GET /auth/me', () => {
       role: 'employee',
       totalXP: 0,
       level: 'Apprentice',
+      onboarding: null,
     });
     expect(res.body).not.toHaveProperty('passwordHash');
     expect(res.headers['cache-control']).toBe('no-store');

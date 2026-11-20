@@ -6,17 +6,27 @@
 import {
   assessmentSessionSchema,
   attemptResultSchema,
+  exerciseAnswerRequestSchema,
+  exerciseFeedbackSchema,
+  finalTestOverviewSchema,
   gateAttemptRequestSchema,
   gateAttemptResultSchema,
   gateOfflineReleaseRequestSchema,
   gateOfflineReleaseResultSchema,
   gateStatusSchema,
   learningOverviewSchema,
+  ONBOARDING_OUTCOMES,
   loginRequestSchema,
+  moduleDetailSchema,
+  moduleProgressSchema,
+  myBadgesSchema,
   objectIdSchema,
+  onboardingRequestSchema,
+  onboardingStateSchema,
   quizOverviewSchema,
   refreshRequestSchema,
   submitAttemptRequestSchema,
+  xpSummarySchema,
 } from '@csense/shared';
 import { z } from 'zod';
 
@@ -28,7 +38,7 @@ export interface Operation<
   R extends z.ZodType = z.ZodType,
 > {
   id: string;
-  method: 'GET' | 'POST';
+  method: 'GET' | 'POST' | 'PATCH';
   path: (params: z.output<P>) => string;
   params: P;
   body: B;
@@ -45,6 +55,7 @@ const id = objectIdSchema.transform((v) => v.toLowerCase());
 const moduleParams = z.object({ moduleId: id }).strict();
 const moduleSessionParams = z.object({ moduleId: id, sessionId: id }).strict();
 const sessionParams = z.object({ sessionId: id }).strict();
+const exerciseParams = z.object({ moduleId: id, exerciseId: id }).strict();
 const empty = z.undefined();
 
 const enc = encodeURIComponent;
@@ -56,6 +67,12 @@ export const userResponseSchema = z.object({
   role: z.enum(['employee', 'administrator']),
   level: z.string().max(40).optional(),
   totalXP: z.number().int().min(0).optional(),
+  /** Employees only; `null` until the onboarding is completed or skipped. */
+  onboarding: z
+    .object({ outcome: z.enum(ONBOARDING_OUTCOMES), at: z.string().max(40) })
+    .strict()
+    .nullable()
+    .optional(),
 });
 export type UserResponse = z.infer<typeof userResponseSchema>;
 
@@ -175,6 +192,78 @@ export const OPERATIONS = {
     params: moduleParams,
     body: noBody,
     response: quizOverviewSchema,
+    auth: 'bearer',
+  }),
+  'modules.detail': op({
+    id: 'modules.detail',
+    method: 'GET',
+    path: (p) => `/modules/${enc(p.moduleId)}`,
+    params: moduleParams,
+    body: noBody,
+    response: moduleDetailSchema,
+    auth: 'bearer',
+  }),
+  'modules.start': op({
+    id: 'modules.start',
+    method: 'POST',
+    path: (p) => `/modules/${enc(p.moduleId)}/start`,
+    params: moduleParams,
+    body: noBody,
+    response: moduleProgressSchema,
+    auth: 'bearer',
+  }),
+  'modules.answerExercise': op({
+    id: 'modules.answerExercise',
+    method: 'POST',
+    path: (p) => `/modules/${enc(p.moduleId)}/exercises/${enc(p.exerciseId)}/answers`,
+    params: exerciseParams,
+    body: exerciseAnswerRequestSchema,
+    response: exerciseFeedbackSchema,
+    auth: 'bearer',
+  }),
+  'modules.completeContent': op({
+    id: 'modules.completeContent',
+    method: 'POST',
+    path: (p) => `/modules/${enc(p.moduleId)}/content/complete`,
+    params: moduleParams,
+    body: noBody,
+    response: moduleProgressSchema,
+    auth: 'bearer',
+  }),
+  'final.overview': op({
+    id: 'final.overview',
+    method: 'GET',
+    path: () => '/final-test',
+    params: noParams,
+    body: noBody,
+    response: finalTestOverviewSchema,
+    auth: 'bearer',
+  }),
+  'me.xp': op({
+    id: 'me.xp',
+    method: 'GET',
+    path: () => '/me/xp',
+    params: noParams,
+    body: noBody,
+    response: xpSummarySchema,
+    auth: 'bearer',
+  }),
+  'me.badges': op({
+    id: 'me.badges',
+    method: 'GET',
+    path: () => '/me/badges',
+    params: noParams,
+    body: noBody,
+    response: myBadgesSchema,
+    auth: 'bearer',
+  }),
+  'me.onboarding': op({
+    id: 'me.onboarding',
+    method: 'PATCH',
+    path: () => '/me/onboarding',
+    params: noParams,
+    body: onboardingRequestSchema,
+    response: onboardingStateSchema,
     auth: 'bearer',
   }),
   'quiz.startSession': op({

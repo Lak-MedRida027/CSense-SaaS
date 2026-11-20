@@ -9,6 +9,9 @@ import type { GateController } from '../gate/gateController';
 import type { LockdownController } from '../lockdown/lockdownController';
 import type { ReminderScheduler } from '../notifications/reminderScheduler';
 import { toResult, type SessionService } from '../session/sessionService';
+import type { ModuleDetailView } from '../../shared/ipcChannels';
+import type { ModuleDetailDTO } from '../../shared/dto';
+import { IPC_CHANNEL_POLICY } from './policy';
 import type { IpcHandlers } from './registry';
 
 export interface HandlerDeps {
@@ -18,6 +21,8 @@ export interface HandlerDeps {
   gate: GateController;
   lockdown: LockdownController;
   reminders: Pick<ReminderScheduler, 'noteCooldown' | 'noteLearningActivity'>;
+  /** Content URL to `app://csense/media/<file>` or null (ADR 0019). The renderer never sees the original. */
+  resolveMedia: (url: string | null | undefined) => string | null;
 }
 
 const misconfigured = {
@@ -28,8 +33,76 @@ const locked = {
   ok: false,
   error: { code: 'GATE_LOCKED', message: 'Complete the security check first.' },
 } as const;
+const closedBook = {
+  ok: false,
+  error: { code: 'LOCKDOWN_ACTIVE', message: 'Finish or leave the quiz first.' },
+} as const;
+
+/** Maps authored media URLs to bundled media; nothing remote reaches the renderer. */
+export function toModuleView(
+  detail: ModuleDetailDTO,
+  resolve: (url: string | null | undefined) => string | null,
+): ModuleDetailView {
+  const { video, ...content } = detail.content;
+  return {
+    ...detail,
+    content: {
+      ...content,
+      video: video
+        ? {
+            src: resolve(video.url),
+            captionsSrc: resolve(video.captionsUrl),
+            transcript: video.transcript,
+          }
+        : null,
+    },
+  };
+}
 
 export function buildHandlers(deps: HandlerDeps): IpcHandlers {
+  return applyPolicy(deps, rawHandlers(deps));
+}
+
+/**
+ * Enforces the channel policy table on every handler (ADR 0020): `GATE_LOCKED` before release,
+ * `LOCKDOWN_ACTIVE` during a quiz for the closed-book channels, and an `ACCESS_RESTRICTED` answer to
+ * a journey call re-locks the workstation (D6-19). The checks run before any request is made.
+ */
+function applyPolicy(deps: HandlerDeps, handlers: IpcHandlers): IpcHandlers {
+  const { gate, lockdown, session } = deps;
+  const epoch = (): number => gate.epoch() + lockdown.epoch() + session.epoch();
+  const out: Record<string, (input: unknown) => unknown> = {};
+  for (const key of Object.keys(handlers) as (keyof IpcHandlers)[]) {
+    const policy = IPC_CHANNEL_POLICY[key];
+    const handler = handlers[key] as (input: unknown) => unknown;
+    out[key] = async (input: unknown) => {
+      if (policy.requiresRelease && !gate.isReleased()) return locked;
+      if (policy.duringLockdown === 'deny' && lockdown.isActive()) return closedBook;
+      const before = epoch();
+      const lockdownBefore = lockdown.epoch();
+      const res = (await handler(input)) as {
+        ok?: boolean;
+        error?: { code?: string };
+      };
+      // The workstation may have changed state while the request was in flight (a quiz began, the
+      // gate re-locked, the user signed out): the payload must not be delivered (P6-L1, P6-I1).
+      if (policy.requiresRelease) {
+        if (!gate.isReleased()) return locked;
+        if (policy.duringLockdown === 'deny' && lockdown.isActive()) return closedBook;
+        if (epoch() !== before) {
+          return lockdown.epoch() !== lockdownBefore ? closedBook : locked;
+        }
+      }
+      if (policy.requiresRelease && res.ok === false && res.error?.code === 'ACCESS_RESTRICTED') {
+        gate.noteRestricted();
+      }
+      return res;
+    };
+  }
+  return out as unknown as IpcHandlers;
+}
+
+function rawHandlers(deps: HandlerDeps): IpcHandlers {
   const { api, session, gate, lockdown, reminders, config } = deps;
   return {
     'session.getState': () => session.getView(),
@@ -63,17 +136,62 @@ export function buildHandlers(deps: HandlerDeps): IpcHandlers {
     'assessment.exit': (input) => lockdown.exit(input),
 
     'learning.getOverview': async () => {
-      if (!gate.isReleased()) return locked;
       reminders.noteLearningActivity();
       return toResult(await api.call(OPERATIONS['modules.list']));
     },
     'learning.getQuizOverview': async (input) => {
-      if (!gate.isReleased()) return locked;
       reminders.noteLearningActivity();
       const res = await api.call(OPERATIONS['modules.quizOverview'], {
         params: { moduleId: input.moduleId },
       });
       if (res.ok && res.data.cooldownUntil) reminders.noteCooldown(res.data.cooldownUntil);
+      return toResult(res);
+    },
+
+    'learning.getModule': async (input) => {
+      reminders.noteLearningActivity();
+      const res = await api.call(OPERATIONS['modules.detail'], {
+        params: { moduleId: input.moduleId },
+      });
+      if (!res.ok) return toResult(res);
+      if (res.data.quiz?.cooldownUntil) reminders.noteCooldown(res.data.quiz.cooldownUntil);
+      return { ok: true, data: toModuleView(res.data, deps.resolveMedia) };
+    },
+    'learning.startModule': async (input) => {
+      reminders.noteLearningActivity();
+      return toResult(
+        await api.call(OPERATIONS['modules.start'], { params: { moduleId: input.moduleId } }),
+      );
+    },
+    'learning.answerExercise': async (input) => {
+      reminders.noteLearningActivity();
+      return toResult(
+        await api.call(OPERATIONS['modules.answerExercise'], {
+          params: { moduleId: input.moduleId, exerciseId: input.exerciseId },
+          body: { selectedIndex: input.selectedIndex },
+        }),
+      );
+    },
+    'learning.completeContent': async (input) => {
+      reminders.noteLearningActivity();
+      return toResult(
+        await api.call(OPERATIONS['modules.completeContent'], {
+          params: { moduleId: input.moduleId },
+        }),
+      );
+    },
+    'learning.getFinalTestOverview': async () => {
+      reminders.noteLearningActivity();
+      const res = await api.call(OPERATIONS['final.overview']);
+      if (res.ok && res.data.cooldownUntil) reminders.noteCooldown(res.data.cooldownUntil);
+      return toResult(res);
+    },
+
+    'me.getXp': async () => toResult(await api.call(OPERATIONS['me.xp'])),
+    'me.getBadges': async () => toResult(await api.call(OPERATIONS['me.badges'])),
+    'me.completeOnboarding': async (input) => {
+      const res = await api.call(OPERATIONS['me.onboarding'], { body: input });
+      if (res.ok) session.markOnboardingDone();
       return toResult(res);
     },
   };

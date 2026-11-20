@@ -21,6 +21,8 @@ export interface VideoPlayerFrameProps {
   /** Seam: progress reporting for the "watched" rule (decided outside the UI). */
   onProgress?: ((currentSeconds: number, durationSeconds: number) => void) | undefined;
   onEnded?: (() => void) | undefined;
+  /** The media failed to load or decode; the container switches to the transcript path. */
+  onError?: (() => void) | undefined;
   transcriptOpen?: boolean | undefined;
   onToggleTranscript?: (() => void) | undefined;
   className?: string | undefined;
@@ -48,6 +50,7 @@ export function VideoPlayerFrame({
   onRetry,
   onProgress,
   onEnded,
+  onError,
   transcriptOpen = false,
   onToggleTranscript,
   className,
@@ -161,6 +164,9 @@ export function VideoPlayerFrame({
           onEnded={() => {
             setPlaying(false);
             onEnded?.();
+          }}
+          onError={() => {
+            onError?.();
           }}
         >
           {captionsSrc && (

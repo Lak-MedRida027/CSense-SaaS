@@ -87,6 +87,20 @@ export const moduleAuthoringSchema = z
         message: 'a published video module needs a videoUrl',
       });
     }
+    if (m.format === 'video' && m.captionsUrl === undefined) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['captionsUrl'],
+        message: 'a published video module needs a captionsUrl (WCAG 1.2.2)',
+      });
+    }
+    if (m.format === 'video' && m.transcript.length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['transcript'],
+        message: 'a published video module needs at least one transcript cue (WCAG 1.2.3)',
+      });
+    }
     if (m.format === 'interactive' && m.exercises.length === 0) {
       ctx.addIssue({
         code: 'custom',

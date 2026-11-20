@@ -80,11 +80,13 @@ export function OnboardingScreen({
         <ol className={styles.numbered}>
           <li>
             <BookOpen aria-hidden="true" size={20} />
-            Watch or play through each of the {moduleCount} modules.
+            {moduleCount === undefined
+              ? 'Watch or play through each short module.'
+              : `Watch or play through each of the ${String(moduleCount)} modules.`}
           </li>
           <li>
             <ClipboardCheck aria-hidden="true" size={20} />
-            Pass its short quiz ({passMarkPercent}% to pass) to unlock the next one.
+            Pass its short quiz (usually {passMarkPercent}% to pass) to unlock the next one.
           </li>
           <li>
             <Trophy aria-hidden="true" size={20} />

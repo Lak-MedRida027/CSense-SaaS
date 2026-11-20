@@ -18,6 +18,8 @@ export interface QuizQuestionData {
   /** Only provided for the review phase (never sent to the client while answering). */
   correctOptionId?: string | undefined;
   explanation?: ReactNode | undefined;
+  /** Graded result of the user's pick (review only; the key itself may be withheld, D3-13). */
+  wasCorrect?: boolean | undefined;
 }
 
 export interface QuizResultData {
@@ -49,7 +51,11 @@ export interface QuizScreenProps {
   attemptNumber?: number | undefined;
   result?: QuizResultData | undefined;
   submitting?: boolean | undefined;
+  /** The intro's Start button is busy while main enters secure mode. */
+  starting?: boolean | undefined;
   continueLabel?: string | undefined;
+  /** Label of the back action on a result that is not a pass (default "Back to training"). */
+  backLabel?: string | undefined;
 
   /** Seam: ask the main process to enter lockdown (Phase 5). */
   onRequestStartLockdown: () => void;
@@ -62,11 +68,16 @@ export interface QuizScreenProps {
   onSubmit: () => void;
   /** Seam: user confirmed leaving mid-quiz (counts as an attempt, D5). */
   onConfirmExit: () => void;
-  /** Hidden when not provided (Phase 5 shows the result only; review arrives in Phase 6). */
+  /** Hidden when not provided (abandoned and expired attempts have no review). */
   onReviewAnswers?: (() => void) | undefined;
   onBackToResult: () => void;
   onRetry: () => void;
   onContinue: () => void;
+  /**
+   * The intro cannot start a session now (cooldown, already passed): Start is disabled and the
+   * reason is shown.
+   */
+  startBlocked?: { reason: string } | undefined;
   /** Intro "back" action. */
   onBackToModule?: (() => void) | undefined;
 }

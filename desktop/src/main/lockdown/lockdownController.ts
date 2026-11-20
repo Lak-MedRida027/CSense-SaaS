@@ -110,6 +110,13 @@ export class LockdownController implements LockdownGate {
 
   // ---- LockdownGate (used by the gate controller) ---------------------------------------------
 
+  private epochCount = 0;
+
+  /** Increases each time a lockdown begins. */
+  epoch(): number {
+    return this.epochCount;
+  }
+
   isActive(): boolean {
     return this.state === 'entering' || this.state === 'active' || this.state === 'exiting';
   }
@@ -523,6 +530,8 @@ export class LockdownController implements LockdownGate {
     sessionId: string | null,
     reason?: LockdownEndReason,
   ): void {
+    // A new lockdown bumps the epoch, so journey calls already in flight are discarded (P6-L1).
+    if (state !== 'inactive' && this.state === 'inactive') this.epochCount++;
     this.state = state;
     this.deps.emit({
       type: 'lockdown',

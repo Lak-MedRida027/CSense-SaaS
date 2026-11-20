@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { DASHBOARD_HEADING } from './support/journey';
 import { answerCorrectly, answerWrongly, currentPrompt, signIn } from './support/keys';
 import {
   cleanup,
@@ -139,9 +140,9 @@ test.describe.serial('security gate: blocks, then grants', () => {
     expect((await windowState(s.app)).kiosk).toBe(true);
   });
 
-  test('7. Continue unlocks the window and lands on the training home', async () => {
+  test('7. Continue unlocks the window and lands on the dashboard (already onboarded)', async () => {
     await s.page.getByRole('button', { name: /Continue now/ }).click();
-    await expect(s.page.getByRole('heading', { level: 1, name: 'Your training' })).toBeVisible();
+    await expect(s.page.getByRole('heading', { level: 1, name: DASHBOARD_HEADING })).toBeVisible();
     const st = await windowState(s.app);
     expect(st).toMatchObject({ kiosk: false, alwaysOnTop: false, closable: true });
   });
@@ -150,7 +151,7 @@ test.describe.serial('security gate: blocks, then grants', () => {
     await forceClose(s.app);
     s = await launchApp({ userDataDir });
     // The gate is shown first ("Access granted") and continues by itself after ~2 s.
-    await expect(s.page.getByRole('heading', { level: 1, name: 'Your training' })).toBeVisible({
+    await expect(s.page.getByRole('heading', { level: 1, name: DASHBOARD_HEADING })).toBeVisible({
       timeout: 20_000,
     });
     await expect(s.page.getByRole('heading', { name: 'Security check' })).toHaveCount(0);

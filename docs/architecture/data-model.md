@@ -31,6 +31,7 @@ Source of truth: `docs/CSense_Class_UML.png`. Implemented as Mongoose schemas in
 | createdBy | ObjectId → User | default `null`; **required on create** for every account except the bootstrap administrator (U20). Enforced by a `pre('validate')` hook on the base schema; the bootstrap script opts in with `doc.$locals.bootstrap = true` |
 | totalXP *(Employee)* | int | default 0, min 0 |
 | level *(Employee)* | Apprentice \| Aware \| Practitioner \| Guardian \| Defender | default Apprentice |
+| onboarding *(Employee, Phase 6)* | `{outcome, at}` \| null | default `null`; first write wins |
 
 Indexes: `{email:1}` unique · `{role:1,isActive:1}` · `{department:1}`
 
@@ -250,6 +251,8 @@ the key. Test cleanup uses driver-level `deleteMany`.
 
 **`users` (Employee), new field.** `gateRestriction: { restrictedAt, runId } | null`: a cache of "the latest restricted run is not restored", read by the access gate on every request and repaired by reconcile from `gateruns`.
 
+**`users` (Employee), new field (Phase 6).** `onboarding: { outcome: 'completed' | 'skipped', at: Date } | null`, default `null`, sub-document with `_id: false` and `strict: 'throw'`. Set once by `PATCH /me/onboarding` through a conditional update (`onboarding: null` in the filter), so the first write wins. No index; no XP or risk effect (FR4, ADR 0020).
+
 The Employee schema also has a partial index on `gateRestriction.runId` for the sweeper scan of flags that outlived their restore.
 
 Start-up verification (`db/learningIndexes.ts`) now also checks the two unique gate indexes; `/health/ready` reports not-ready without them.
@@ -257,5 +260,5 @@ Start-up verification (`db/learningIndexes.ts`) now also checks the two unique g
 ## Planned additions (not in the diagram; built in the owning phase)
 Refresh-token sessions and the append-only audit log were added in Phase 2 (above).
 
-onboarding flag (6) · module assignments (7) · phishing outcomes and review cycles (flagged) ·
+module assignments (7) · phishing outcomes and review cycles (flagged) ·
 (interactive exercise data landed in Phase 3). See the Phase 0 plan section 3.4.

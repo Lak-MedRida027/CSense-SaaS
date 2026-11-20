@@ -11,6 +11,7 @@ export default tseslint.config(
     ignores: [
       '**/node_modules/**',
       '**/dist/**',
+      '**/dist-e2e/**',
       '**/out/**',
       '**/release/**',
       '**/.tsbuild/**',
@@ -42,11 +43,20 @@ export default tseslint.config(
 
   // Config files sit outside the TS projects: lint them without type information.
   {
-    files: ['**/*.config.{ts,mjs,js}', 'eslint.config.mjs'],
+    files: [
+      '**/*.config.{ts,mjs,js}',
+      'eslint.config.mjs',
+      'desktop/scripts/**/*.cjs',
+      'server/scripts/**/*.mjs',
+    ],
     ...tseslint.configs.disableTypeChecked,
     languageOptions: {
       ...tseslint.configs.disableTypeChecked.languageOptions,
-      globals: globals.node,
+      globals: { ...globals.node, ...globals.commonjs },
+    },
+    rules: {
+      ...tseslint.configs.disableTypeChecked.rules,
+      '@typescript-eslint/no-require-imports': 'off',
     },
   },
 
@@ -93,6 +103,12 @@ export default tseslint.config(
   {
     files: ['desktop/src/renderer/**/*.{ts,tsx}'],
     ...jsxA11y.flatConfigs.recommended,
+  },
+
+  // Authored content (lesson text, prompts, explanations) is rendered as text nodes only (D6-18).
+  {
+    files: ['desktop/src/renderer/**/*.{ts,tsx}'],
+    rules: { 'react/no-danger': 'error' },
   },
 
   // The renderer has no network access (CSP `connect-src 'self'`, ADR 0013): the API is reached by the

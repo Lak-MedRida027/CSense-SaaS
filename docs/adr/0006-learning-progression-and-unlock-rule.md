@@ -65,7 +65,7 @@ stored flags go stale and a migration job is needed for every content change.
     quiz summaries and the final test. That is fine for 7 modules; revisit if curricula grow large.
   - An employee can lose access to a module they had started after a reorder. Phase 7's reorder UI
     must warn about this.
-  - The content gate relies on an honest client for video. A hostile client can skip the video but
+  - The content gate relies on an honest client for video (the exact "watched" rule is in ADR 0019). A hostile client can skip the video but
     still has to pass the quiz.
   - `UserProgress.status` stored in the DB is not the employee-visible status. Code that reads
     status must call the derivation function, never the raw field (tested).

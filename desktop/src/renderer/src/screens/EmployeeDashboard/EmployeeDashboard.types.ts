@@ -24,9 +24,15 @@ export interface EmployeeDashboardScreenProps {
     scorePercent?: number | undefined;
     /** Number of questions (about 15, configurable). */
     questionCount?: number | undefined;
+    /** Extra line under the card text, e.g. "You can try again at 14:05." */
+    note?: string | undefined;
   };
   /** Whole-page loading/error; `ready` otherwise. */
-  state?: 'ready' | 'loading' | 'error' | undefined;
+  state?: 'ready' | 'loading' | 'error' | 'empty' | undefined;
+  /** Replaces the default error text (for example when the network is unreachable). */
+  errorDescription?: string | undefined;
+  /** A non-blocking note above the content (for example: working offline). */
+  notice?: { tone: 'info' | 'caution'; text: string } | undefined;
   onRetry?: (() => void) | undefined;
 
   onOpenModule: (moduleId: string) => void;

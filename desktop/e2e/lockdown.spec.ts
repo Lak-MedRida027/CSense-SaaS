@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { DASHBOARD_HEADING, backToDashboard, openModuleQuiz, passGate } from './support/journey';
 import { answerCorrectly, signIn } from './support/keys';
 import {
   cleanup,
@@ -24,32 +25,26 @@ test.describe.serial('quiz lockdown', () => {
   const banner = () => page.getByRole('region', { name: 'Secure quiz mode' });
 
   async function startQuiz(): Promise<void> {
-    await page.getByRole('button', { name: /Start quiz/ }).click();
-    await expect(
-      page.getByRole('heading', { level: 1, name: 'Ready for the quiz?' }),
-    ).toBeVisible();
+    // Dashboard -> Module 1 -> Continue to quiz (its content is pre-completed by the harness).
+    await openModuleQuiz(page);
     await page.getByRole('button', { name: 'Start secure quiz' }).click();
     await expect(banner().getByText('Secure quiz mode is on')).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole('radio').first()).toBeAttached();
   }
 
   async function backToHome(): Promise<void> {
-    // A result that is not a pass offers "Back to training"; a pass offers "Back to training" too.
-    await page.getByRole('button', { name: 'Back to training' }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Your training' })).toBeVisible();
+    await backToDashboard(page);
   }
 
   test.beforeAll(async () => {
     s = await launchApp();
     page = s.page;
-    const acct = s.backend.accounts.quiz;
-    await signIn(page, acct.email, acct.password);
-    await expect(page.getByRole('heading', { level: 1, name: 'Security check' })).toBeVisible();
-    await answerCorrectly(page, s.backend);
-    await page.getByRole('button', { name: /Continue now/ }).click();
-    await expect(page.getByRole('heading', { level: 1, name: 'Your training' })).toBeVisible();
+    await passGate(page, s.backend, 'quiz');
+    await expect(page.getByRole('heading', { level: 1, name: DASHBOARD_HEADING })).toBeVisible();
     // Module 1's content is pre-completed by the harness, so its quiz can start.
-    await expect(page.getByRole('button', { name: /Start quiz/ })).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByRole('button', { name: /^(Start|Resume) module/ })).toBeVisible({
+      timeout: 15_000,
+    });
   });
 
   test.afterAll(async () => {
@@ -148,11 +143,15 @@ test.describe.serial('quiz lockdown', () => {
   });
 
   test('3. focus loss: a warning first, then the attempt ends as abandoned and the window unlocks', async () => {
+    // The user switches to another application: a throwaway window takes the focus, which is a real
+    // focus -> blur transition each time (BrowserWindow.blur() on a window that main just refocused
+    // is not reliably an event on Windows).
     const blurOnce = async () => {
-      await s.app.evaluate(({ BrowserWindow }) => {
-        BrowserWindow.getAllWindows()
-          .find((x) => x.webContents.getURL().endsWith('/index.html'))
-          ?.blur();
+      await s.app.evaluate(async ({ BrowserWindow }) => {
+        const other = new BrowserWindow({ show: true, width: 100, height: 100 });
+        other.focus();
+        await new Promise((r) => setTimeout(r, 1200));
+        other.destroy();
       });
     };
     await blurOnce();
@@ -256,7 +255,7 @@ test('renderer crash: resumed once and still locked; a second crash ends the att
     await signIn(page, acct.email, acct.password);
     // The clearance from the other spec is still valid, so the gate auto-continues; otherwise answer.
     await Promise.race([
-      page.getByRole('heading', { level: 1, name: 'Your training' }).waitFor({ timeout: 20_000 }),
+      page.getByRole('heading', { level: 1, name: DASHBOARD_HEADING }).waitFor({ timeout: 20_000 }),
       page
         .getByRole('heading', { level: 1, name: 'Security check' })
         .waitFor({ timeout: 20_000 })
@@ -265,7 +264,7 @@ test('renderer crash: resumed once and still locked; a second crash ends the att
           await page.getByRole('button', { name: /Continue now/ }).click();
         }),
     ]);
-    await page.getByRole('button', { name: /Start quiz/ }).click();
+    await openModuleQuiz(page);
     await page.getByRole('button', { name: 'Start secure quiz' }).click();
     await expect(page.getByText('Secure quiz mode is on')).toBeVisible({ timeout: 15_000 });
 
@@ -293,7 +292,7 @@ test('renderer crash: resumed once and still locked; a second crash ends the att
     await crash();
     await expect
       .poll(() => bodyText().catch(() => ''), { timeout: 30_000 })
-      .toContain('Your training');
+      .toMatch(/(Welcome|Good to see you), /);
     expect(await windowState(s.app)).toMatchObject({ kiosk: false, closable: true });
   } finally {
     await forceClose(s.app);

@@ -29,7 +29,43 @@ export interface DesktopConfig {
   autoStart: boolean;
   reminders: { firstDelayMinutes: number; intervalMinutes: number; maxPerDay: number };
   devToolsInDev: boolean;
+  /** Aggregate IPC API budget in calls per second (unpackaged runs may raise it for e2e; default 5). */
+  ipcApiRatePerSecond: number;
   externalLinkHosts: readonly string[];
+  /**
+   * Lesson media (ADR 0019). `baseUrl` is the https prefix authored content URLs must start with;
+   * null disables media (the player falls back to the transcript). Only `bundled` mode exists until
+   * Phase 10.
+   */
+  media: { baseUrl: string | null; error: string | null };
+}
+
+export const DEFAULT_MEDIA_BASE_URL = 'https://media.example.com/csense/';
+
+export function validateMediaConfig(
+  baseRaw: string | undefined,
+  modeRaw: string | undefined,
+): { baseUrl: string | null; error: string | null } {
+  const mode = modeRaw?.trim() || 'bundled';
+  if (mode !== 'bundled') {
+    return { baseUrl: null, error: 'Only MAIN_VITE_MEDIA_MODE=bundled is supported' };
+  }
+  const raw = baseRaw?.trim() || DEFAULT_MEDIA_BASE_URL;
+  let u: URL;
+  try {
+    u = new URL(raw);
+  } catch {
+    return { baseUrl: null, error: 'Media base URL is not a valid URL' };
+  }
+  if (u.protocol !== 'https:') return { baseUrl: null, error: 'Media base URL must use https' };
+  if (u.username !== '' || u.password !== '' || u.search !== '' || u.hash !== '') {
+    return {
+      baseUrl: null,
+      error: 'Media base URL must not contain credentials, a query or a fragment',
+    };
+  }
+  const path = u.pathname.endsWith('/') ? u.pathname : `${u.pathname}/`;
+  return { baseUrl: `${u.origin}${path}`, error: null };
 }
 
 export const API_PATH_SUFFIX = '/api/v1';
@@ -114,7 +150,9 @@ export function loadDesktopConfig(
       intervalMinutes: intInRange(build.MAIN_VITE_REMINDER_INTERVAL_MINUTES, 1, 1440, 240),
       maxPerDay: intInRange(build.MAIN_VITE_REMINDER_MAX_PER_DAY, 0, 10, 2),
     },
+    ipcApiRatePerSecond: intInRange(env.CSENSE_IPC_API_RATE, 5, 100, 5),
     devToolsInDev: opts.isPackaged ? false : bool(env.CSENSE_DEVTOOLS, true),
     externalLinkHosts: [],
+    media: validateMediaConfig(build.MAIN_VITE_MEDIA_BASE_URL, build.MAIN_VITE_MEDIA_MODE),
   };
 }

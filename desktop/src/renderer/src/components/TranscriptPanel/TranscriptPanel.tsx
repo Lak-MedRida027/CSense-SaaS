@@ -1,4 +1,4 @@
-import { useId } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { cx } from '../../lib/cx';
 import { EmptyState } from '../EmptyState';
 import { SkeletonText } from '../Skeleton';
@@ -18,6 +18,11 @@ export interface TranscriptPanelProps {
   /** Seam: jump the video to a cue. Without it, timestamps are plain text. */
   onSeek?: ((seconds: number) => void) | undefined;
   loading?: boolean | undefined;
+  /**
+   * Fires once when the last cue has been scrolled into view (or all cues fit without scrolling).
+   * Used by the "finish lesson" rule as the accessible alternative to watching (WCAG 1.2.3).
+   */
+  onReachedEnd?: (() => void) | undefined;
   title?: string | undefined;
   className?: string | undefined;
 }
@@ -28,16 +33,41 @@ export function TranscriptPanel({
   activeCueId,
   onSeek,
   loading = false,
+  onReachedEnd,
   title = 'Transcript',
   className,
 }: TranscriptPanelProps) {
   const headingId = useId();
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const reported = useRef(false);
+  const callback = useRef(onReachedEnd);
+  useEffect(() => {
+    callback.current = onReachedEnd;
+  });
+  const hasCues = !loading && cues.length > 0;
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !hasCues) return undefined;
+    const check = (): void => {
+      if (reported.current) return;
+      if (el.scrollTop + el.clientHeight >= el.scrollHeight - 4) {
+        reported.current = true;
+        callback.current?.();
+      }
+    };
+    check();
+    el.addEventListener('scroll', check, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', check);
+    };
+  }, [hasCues]);
   return (
     <div className={cx(styles.root, className)}>
       <h3 id={headingId} className={styles.heading}>
         {title}
       </h3>
       <div
+        ref={scrollRef}
         role="region"
         aria-labelledby={headingId}
         // Scrollable region must be focusable for keyboard scrolling (axe scrollable-region-focusable).

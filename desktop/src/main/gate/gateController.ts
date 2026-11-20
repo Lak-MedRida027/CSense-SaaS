@@ -113,8 +113,23 @@ export class GateController {
     );
   }
 
+  private epochCount = 0;
+
+  /** Increases each time the workstation leaves the released state. */
+  epoch(): number {
+    return this.epochCount;
+  }
+
   isReleased(): boolean {
     return this.phase === 'released';
+  }
+
+  /**
+   * A journey call came back `ACCESS_RESTRICTED` (D6-19): re-lock into the gate, which re-checks the
+   * status and lands in the restricted state. Deferred while a quiz is locked down (as every relock).
+   */
+  noteRestricted(): void {
+    if (this.phase === 'released') this.relock('api_restricted');
   }
 
   getView(): GateView {
@@ -567,6 +582,8 @@ export class GateController {
   }
 
   private setPhase(phase: GatePhase): void {
+    // Leaving `released` (re-lock, restriction, sign-out) bumps the epoch (P6-L1/P6-I1).
+    if (this.phase === 'released' && phase !== 'released') this.epochCount++;
     this.phase = phase;
     if (phase !== 'challenge' && phase !== 'granted' && phase !== 'restricted') {
       if (phase === 'signed_out' || phase === 'boot') this.status = null;

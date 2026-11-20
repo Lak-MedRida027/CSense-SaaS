@@ -6,3 +6,5 @@
 *.docx binary
 *.pdf binary
 *.woff2 binary
+
+*.webm binary

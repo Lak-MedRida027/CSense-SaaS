@@ -17,6 +17,7 @@ import {
   type IpcMethodKey,
 } from '../../shared/ipc';
 import type { Logger } from '../log';
+import { AGGREGATE_API_RATE, IPC_CHANNEL_POLICY, type ChannelPolicy } from './policy';
 
 /** Minimal slice of `ipcMain` used here. */
 export interface IpcMainLike {
@@ -38,6 +39,10 @@ export interface IpcRegistryDeps {
   now?: () => number;
   /** Overridable for tests (a registry with a missing schema must refuse to start). */
   schemas?: Readonly<Record<string, z.ZodType>>;
+  /** Overridable for tests (a registry with a missing policy row must refuse to start). */
+  policy?: Readonly<Record<string, ChannelPolicy>>;
+  /** Aggregate API budget; defaults to AGGREGATE_API_RATE (5/s, burst 20). */
+  aggregateRate?: { perSecond: number; burst: number };
 }
 
 export function ipcFailure(
@@ -62,12 +67,14 @@ export function assertIpcRegistry(
   registered: readonly string[],
   schemaKeys: readonly string[],
   preloadChannels: readonly string[],
+  policyKeys: readonly string[] = Object.keys(IPC_CHANNEL_POLICY),
 ): void {
   const declared = declaredMethodKeys();
   const dupes = registered.filter((k, i) => registered.indexOf(k) !== i);
   if (dupes.length > 0) throw new Error(`IPC registry: duplicate channels ${dupes.join(', ')}`);
   for (const key of declared) {
     if (!schemaKeys.includes(key)) throw new Error(`IPC registry: channel ${key} has no schema`);
+    if (!policyKeys.includes(key)) throw new Error(`IPC registry: channel ${key} has no policy`);
     if (!registered.includes(key)) throw new Error(`IPC registry: channel ${key} has no handler`);
   }
   for (const key of registered) {
@@ -85,10 +92,14 @@ export class IpcRegistry {
   private readonly registered: string[] = [];
   private readonly now: () => number;
   private readonly schemas: Readonly<Record<string, z.ZodType>>;
+  private readonly policy: Readonly<Record<string, ChannelPolicy>>;
 
   constructor(private readonly deps: IpcRegistryDeps) {
     this.now = deps.now ?? Date.now;
     this.schemas = deps.schemas ?? IPC_INPUT_SCHEMAS;
+    this.policy = deps.policy ?? IPC_CHANNEL_POLICY;
+    this.aggregate = deps.aggregateRate ?? AGGREGATE_API_RATE;
+    this.tokens = this.aggregate.burst;
   }
 
   /** Registers every handler, then asserts the registry against the declared inventory. */
@@ -96,7 +107,12 @@ export class IpcRegistry {
     for (const [key, handler] of Object.entries(handlers)) {
       this.registerOne(key, handler as (input: unknown) => unknown);
     }
-    assertIpcRegistry(this.registered, Object.keys(this.schemas), preloadChannels);
+    assertIpcRegistry(
+      this.registered,
+      Object.keys(this.schemas),
+      preloadChannels,
+      Object.keys(this.policy),
+    );
   }
 
   dispose(): void {
@@ -114,12 +130,35 @@ export class IpcRegistry {
     this.deps.ipc.handle(channel, (event, ...args) => this.invoke(key, handler, event, args));
   }
 
+  private readonly aggregate: { perSecond: number; burst: number };
+  private tokens: number;
+  private tokensAt: number | null = null;
+
+  /**
+   * One token bucket across every API-calling channel (P6-L2): per-channel ceilings alone let a
+   * single channel at 20/s drain the shared egress budget. Refused calls take no token.
+   */
+  private apiBudgetExhausted(key: string): boolean {
+    if (!this.policy[key]?.callsApi) return false;
+    const t = this.now();
+    if (this.tokensAt !== null) {
+      this.tokens = Math.min(
+        this.aggregate.burst,
+        this.tokens + ((t - this.tokensAt) / 1000) * this.aggregate.perSecond,
+      );
+    }
+    this.tokensAt = t;
+    if (this.tokens < 1) return true;
+    this.tokens -= 1;
+    return false;
+  }
+
   private rateLimited(key: string): boolean {
     const t = this.now();
     const recent = (this.calls.get(key) ?? []).filter((x) => t - x < 1000);
     recent.push(t);
     this.calls.set(key, recent);
-    return recent.length > IPC_MAX_CALLS_PER_SECOND;
+    return recent.length > (this.policy[key]?.ratePerSecond ?? IPC_MAX_CALLS_PER_SECOND);
   }
 
   private async invoke(
@@ -135,6 +174,10 @@ export class IpcRegistry {
     }
     if (this.rateLimited(key)) {
       log.warn('ipc.rate_limited', { channel: key });
+      return ipcFailure('INVALID_INPUT', 'Too many requests.');
+    }
+    if (this.apiBudgetExhausted(key)) {
+      log.warn('ipc.api_budget_exhausted', { channel: key });
       return ipcFailure('INVALID_INPUT', 'Too many requests.');
     }
     if (args.length > 1 || payloadBytes(args) > IPC_MAX_PAYLOAD_BYTES) {

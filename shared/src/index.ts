@@ -12,6 +12,7 @@ export * from './constants/gamification.js';
 export * from './constants/governance.js';
 export * from './constants/criticalEventPolicy.js';
 export * from './constants/gate.js';
+export * from './constants/onboarding.js';
 
 export * from './schemas/common.js';
 export * from './schemas/text.js';
@@ -20,6 +21,8 @@ export * from './schemas/users.js';
 export * from './schemas/learning.js';
 export * from './schemas/gate.js';
 export * from './schemas/gateResponses.js';
+export * from './schemas/onboarding.js';
+export * from './schemas/onboardingResponses.js';
 export * from './schemas/learningResponses.js';
 export * from './schemas/learningAuthoring.js';
 export * from './schemas/badgeAuthoring.js';

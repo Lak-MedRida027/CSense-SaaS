@@ -49,3 +49,5 @@ Phase 5 turns the empty Electron shell into the enforcement tool: the start-up g
   - The custom protocol and the dev-only CSP transform add build complexity.
   - `style-src 'unsafe-inline'` remains until Phase 9 evaluates hashes or nonces.
 - Follow-ups: Phase 6 adds the media host to `media-src` and to the egress allowlist; Phase 10 applies the fuses and signs the binaries.
+
+Phase 6 follow-up: the bridge grows additively to 22 invoke channels (a `me` area) and gains per-channel policy and the closed-book rule (ADR 0020); bundled media is served under `media-src 'self'` (ADR 0019).

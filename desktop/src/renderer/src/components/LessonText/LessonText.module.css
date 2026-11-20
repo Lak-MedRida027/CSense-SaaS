@@ -1,0 +1,15 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: var(--cs-space-4);
+  max-width: 68ch;
+}
+
+.paragraph {
+  font-size: var(--cs-font-size-md);
+  line-height: var(--cs-line-height-md);
+  color: var(--cs-color-text-primary);
+  /* A single newline inside a paragraph stays a line break. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}

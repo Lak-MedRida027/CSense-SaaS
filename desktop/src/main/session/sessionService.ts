@@ -24,6 +24,8 @@ function toUserView(u: UserResponse): SessionUserView {
     role: u.role,
     ...(u.level !== undefined ? { level: u.level } : {}),
     ...(u.totalXP !== undefined ? { totalXP: u.totalXP } : {}),
+    // Only an employee whose onboarding is explicitly `null` still has to see it.
+    ...(u.role === 'employee' && u.onboarding === null ? { onboardingRequired: true } : {}),
   };
 }
 
@@ -51,6 +53,15 @@ export class SessionService {
     };
   }
 
+  /** The onboarding was completed or skipped (`me.completeOnboarding`): the view stops asking. */
+  markOnboardingDone(): void {
+    if (!this.user?.onboardingRequired) return;
+    const { onboardingRequired: _drop, ...rest } = this.user;
+    this.user = rest;
+    // View-only change: the gate does not care, so listeners are not notified.
+    this.deps.emit(this.getView());
+  }
+
   getUser(): SessionUserView | null {
     return this.user;
   }
@@ -69,6 +80,7 @@ export class SessionService {
 
   /** Server told us the session is gone (revoked, deactivated, refresh rejected). */
   handleEnded(_reason: SessionEndReason): void {
+    this.epochCount++;
     this.user = null;
     this.status = 'signed_out';
     this.notice = 'session_ended';
@@ -153,7 +165,15 @@ export class SessionService {
     return 'signed_out';
   }
 
+  private epochCount = 0;
+
+  /** Increases on every sign-in, sign-out or ended session (identity change). */
+  epoch(): number {
+    return this.epochCount;
+  }
+
   private publish(change: SessionChange): void {
+    this.epochCount++;
     this.deps.emit(this.getView());
     for (const l of [...this.listeners]) l(change);
   }

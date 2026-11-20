@@ -62,6 +62,7 @@ describe('POST /admin/users', () => {
       createdBy: admin.id,
       totalXP: 0,
       level: 'Apprentice',
+      onboarding: null,
     });
     expect(JSON.stringify(res.body)).not.toMatch(/passwordHash|password|\$2[aby]\$/);
 

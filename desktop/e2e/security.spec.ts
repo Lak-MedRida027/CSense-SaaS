@@ -2,6 +2,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { requestCount } from './support/backend';
+import {
+  DASHBOARD_HEADING,
+  backToDashboard,
+  openModuleQuiz,
+  passGate,
+  startSecureQuiz,
+} from './support/journey';
 import { signIn } from './support/keys';
 import {
   cleanup,
@@ -234,6 +241,97 @@ test('P5-L7: any other unexpected destruction of the window relaunches the same 
   } finally {
     killWorktreeElectron();
     await new Promise((r) => setTimeout(r, 1500));
+    cleanup(s.userDataDir);
+  }
+});
+
+/**
+ * Phase 6 properties (plan 9.5, 10): the closed-book rule, renderer storage and the leak scan. One
+ * app, one short module plus quiz pass with the `quiz` account (Module 1's content is pre-completed).
+ */
+test('Phase 6: closed book, storage holds only display preferences, no key or remote URL reaches the renderer', async () => {
+  const s = await launchApp();
+  try {
+    await passGate(s.page, s.backend, 'quiz');
+    await expect(s.page.getByRole('heading', { level: 1, name: DASHBOARD_HEADING })).toBeVisible();
+
+    // Collect every bridge result seen along the way.
+    const collected: string[] = [];
+    const read = async (): Promise<void> => {
+      collected.push(
+        await s.page.evaluate(async () => {
+          const b = window.csense;
+          if (!b) return '';
+          const overview = await b.learning.getOverview();
+          const first = overview.ok ? overview.data.modules[0] : undefined;
+          return JSON.stringify([
+            overview,
+            await b.me.getXp(),
+            await b.me.getBadges(),
+            first ? await b.learning.getModule({ moduleId: first.id }) : null,
+            first ? await b.learning.getQuizOverview({ moduleId: first.id }) : null,
+            await b.learning.getFinalTestOverview(),
+          ]);
+        }),
+      );
+    };
+    await read();
+
+    // A display preference is the only thing that may be stored (E9).
+    await s.page.getByRole('button', { name: 'Settings' }).click();
+    await s.page.getByRole('radio', { name: 'Light' }).check({ force: true });
+    await s.page.getByRole('button', { name: 'Done' }).click();
+    const storage = await s.page.evaluate(() => ({
+      local: Object.keys(localStorage),
+      session: Object.keys(sessionStorage),
+      pref: JSON.parse(localStorage.getItem('csense.ui.v1') ?? 'null') as unknown,
+    }));
+    expect(storage.local).toEqual(['csense.ui.v1']);
+    expect(storage.session).toEqual([]);
+    expect(Object.keys((storage.pref as { prefs: object }).prefs).sort()).toEqual([
+      'motion',
+      'textSize',
+      'theme',
+    ]);
+
+    // Closed book: while the quiz is locked down every learning.* and me.* channel is refused (E6).
+    await openModuleQuiz(s.page);
+    await startSecureQuiz(s.page);
+    const refused = await s.page.evaluate(async () => {
+      const b = window.csense;
+      if (!b) return [];
+      const id = 'a'.repeat(24);
+      const calls: Promise<unknown>[] = [
+        b.learning.getOverview(),
+        b.learning.getQuizOverview({ moduleId: id }),
+        b.learning.getModule({ moduleId: id }),
+        b.learning.startModule({ moduleId: id }),
+        b.learning.answerExercise({ moduleId: id, exerciseId: id, selectedIndex: 0 }),
+        b.learning.completeContent({ moduleId: id }),
+        b.learning.getFinalTestOverview(),
+        b.me.getXp(),
+        b.me.getBadges(),
+        b.me.completeOnboarding({ outcome: 'completed' }),
+      ];
+      const results = (await Promise.all(calls)) as { ok: boolean; error?: { code: string } }[];
+      return results.map((r) => (r.ok ? 'ok' : (r.error?.code ?? '?')));
+    });
+    expect(refused).toHaveLength(10);
+    expect(refused.every((c) => c === 'LOCKDOWN_ACTIVE')).toBe(true);
+
+    // Leave the quiz and look again: reads work, and nothing sensitive was ever delivered.
+    await s.page.getByRole('button', { name: 'Exit quiz' }).click();
+    await s.page.getByRole('button', { name: 'Leave quiz' }).click();
+    await expect(s.page.getByText(/You left the quiz/)).toBeVisible({ timeout: 15_000 });
+    await backToDashboard(s.page);
+    await read();
+    const all = collected.join('\n');
+    expect(all).not.toMatch(/correctAnswer/);
+    expect(all).not.toMatch(/https?:\/\//);
+    expect(all).not.toMatch(/"explanation"/);
+    expect(all).toContain('app://csense/media/');
+  } finally {
+    await forceClose(s.app);
     cleanup(s.userDataDir);
   }
 });

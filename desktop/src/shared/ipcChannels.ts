@@ -9,8 +9,15 @@ import type {
   AssessmentSessionDTO,
   AttemptResultDTO,
   ErrorCode,
+  ExerciseFeedbackDTO,
+  FinalTestOverviewDTO,
   LearningOverviewDTO,
+  ModuleDetailDTO,
+  ModuleProgressDTO,
+  MyBadgesDTO,
+  OnboardingStateDTO,
   QuizOverviewDTO,
+  XpSummaryDTO,
 } from './dto';
 
 export const IPC_PREFIX = 'csense:v1:';
@@ -25,7 +32,16 @@ export const IPC_CHANNELS_V1 = {
   session: ['getState', 'login', 'logout'],
   gate: ['getView', 'requestChallenge', 'submitAnswer', 'continue', 'continueOffline'],
   assessment: ['startSecure', 'resume', 'submit', 'exit'],
-  learning: ['getOverview', 'getQuizOverview'],
+  learning: [
+    'getOverview',
+    'getQuizOverview',
+    'getModule',
+    'startModule',
+    'answerExercise',
+    'completeContent',
+    'getFinalTestOverview',
+  ],
+  me: ['getXp', 'getBadges', 'completeOnboarding'],
 } as const;
 
 export type IpcArea = keyof typeof IPC_CHANNELS_V1;
@@ -45,6 +61,8 @@ export const DESKTOP_ERROR_CODES = [
   'NOT_SIGNED_IN',
   'LOCKDOWN_REQUIRED',
   'LOCKDOWN_NOT_ACTIVE',
+  /** Closed-book rule (ADR 0020): learning content and `me.*` are refused while a quiz is locked down. */
+  'LOCKDOWN_ACTIVE',
   'GATE_LOCKED',
   'INVALID_INPUT',
   'FORBIDDEN_SENDER',
@@ -71,7 +89,23 @@ export interface SessionUserView {
   role: 'employee' | 'administrator';
   level?: string;
   totalXP?: number;
+  /** True iff the user is an employee who has neither completed nor skipped the onboarding. */
+  onboardingRequired?: boolean;
 }
+
+/**
+ * `ModuleDetailDTO` as the renderer sees it: remote media URLs are replaced by bundled
+ * `app://csense/media/...` URLs (or null) by main's media resolver (ADR 0019).
+ */
+export type ModuleDetailView = Omit<ModuleDetailDTO, 'content'> & {
+  content: Omit<ModuleDetailDTO['content'], 'video'> & {
+    video: {
+      src: string | null;
+      captionsSrc: string | null;
+      transcript: { id: number; startSeconds: number; text: string }[];
+    } | null;
+  };
+};
 
 export interface SessionView {
   status: 'unknown' | 'signed_out' | 'signed_in';
@@ -187,6 +221,22 @@ export interface CSenseBridgeV1 {
   readonly learning: {
     getOverview(): Promise<Result<LearningOverviewDTO>>;
     getQuizOverview(input: { moduleId: string }): Promise<Result<QuizOverviewDTO>>;
+    getModule(input: { moduleId: string }): Promise<Result<ModuleDetailView>>;
+    startModule(input: { moduleId: string }): Promise<Result<ModuleProgressDTO>>;
+    answerExercise(input: {
+      moduleId: string;
+      exerciseId: string;
+      selectedIndex: number;
+    }): Promise<Result<ExerciseFeedbackDTO>>;
+    completeContent(input: { moduleId: string }): Promise<Result<ModuleProgressDTO>>;
+    getFinalTestOverview(): Promise<Result<FinalTestOverviewDTO>>;
+  };
+  readonly me: {
+    getXp(): Promise<Result<XpSummaryDTO>>;
+    getBadges(): Promise<Result<MyBadgesDTO>>;
+    completeOnboarding(input: {
+      outcome: 'completed' | 'skipped';
+    }): Promise<Result<OnboardingStateDTO>>;
   };
   readonly events: { subscribe(listener: (e: MainEvent) => void): () => void };
 }

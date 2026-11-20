@@ -7,17 +7,21 @@ export interface BackendInfo {
   baseUrl: string;
   origin: string;
   accounts: Record<
-    'admin' | 'admin2' | 'gate-pass' | 'gate-fail' | 'quiz',
+    'admin' | 'admin2' | 'gate-pass' | 'gate-fail' | 'quiz' | 'journey',
     { email: string; password: string }
   >;
   gateKey: Record<string, number>;
   gateKeyText: Record<string, string>;
+  /** Question text to the index of the correct option, for every module quiz and the final pool. */
+  quizKey: Record<string, number>;
+  /** Exercise prompt to the index of the correct option. */
+  exerciseKey: Record<string, number>;
 }
 
 /** Playwright runs from desktop/ (where playwright.config.mts lives). */
 export const RUN_DIR = resolve(process.cwd(), 'e2e/.run');
 export const BACKEND_FILE = resolve(RUN_DIR, 'backend.json');
-const HARNESS = resolve(process.cwd(), '../server/dist/src/testing/e2eServer.js');
+const HARNESS = resolve(process.cwd(), '../server/dist-e2e/src/testing/e2eServer.js');
 const STARTUP_TIMEOUT_MS = 90_000; // covers the first MongoDB binary download
 
 let child: ChildProcess | null = null;

@@ -153,6 +153,8 @@ describe('authoring schemas', () => {
     duration: 5,
     isPublished: true,
     videoUrl: 'https://media.example.com/a.mp4',
+    captionsUrl: 'https://media.example.com/a.vtt',
+    transcript: [{ startSeconds: 0, text: 'Welcome.' }],
   };
 
   it('SC5: accepts a minimal published video module', () => {
@@ -163,6 +165,27 @@ describe('authoring schemas', () => {
     const { videoUrl: _omit, ...noVideo } = base;
     expect(moduleAuthoringSchema.safeParse(noVideo).success).toBe(false);
     expect(moduleAuthoringSchema.safeParse({ ...noVideo, isPublished: false }).success).toBe(true);
+  });
+
+  it('AUTH-V1: a published video module needs captionsUrl and at least one transcript cue', () => {
+    const { captionsUrl: _c, ...noCaptions } = base;
+    expect(moduleAuthoringSchema.safeParse(noCaptions).success).toBe(false);
+    expect(moduleAuthoringSchema.safeParse({ ...base, transcript: [] }).success).toBe(false);
+    // Drafts and interactive modules are not affected.
+    expect(moduleAuthoringSchema.safeParse({ ...noCaptions, isPublished: false }).success).toBe(
+      true,
+    );
+    expect(
+      moduleAuthoringSchema.safeParse({
+        order: 1,
+        title: 'T',
+        description: 'D',
+        format: 'interactive',
+        duration: 5,
+        isPublished: true,
+        exercises: [{ prompt: 'p', options: ['a', 'b'], correctAnswer: 1, explanation: 'e' }],
+      }).success,
+    ).toBe(true);
   });
 
   it('SC5: rejects a published interactive module without exercises', () => {

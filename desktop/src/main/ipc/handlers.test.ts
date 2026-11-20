@@ -25,6 +25,7 @@ function wire(w: World, reminders = { noteCooldown: vi.fn(), noteLearningActivit
       gate: w.gate,
       lockdown: w.lockdown,
       reminders,
+      resolveMedia: () => null,
     }),
     IPC_CHANNEL_NAMES,
   );
